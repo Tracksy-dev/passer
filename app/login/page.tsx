@@ -1,3 +1,5 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,8 +9,41 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { PasserIcon } from "@/components/ui/passer-icon";
+import { supabase } from "@/lib/supabase";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        // Login successful, redirect to dashboard
+        router.push("/dashboard");
+      }
+    } catch (err) {
+      const error = err as Error;
+      setError(error.message || "Invalid email or password");
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <div className="min-h-screen flex flex-col">
       <SiteHeader />
@@ -36,7 +71,13 @@ export default function LoginPage() {
                 Sign in to your account
               </h2>
 
-              <form className="space-y-5">
+              <form className="space-y-5" onSubmit={handleLogin}>
+                {error && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm text-red-600">{error}</p>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label
                     htmlFor="email"
@@ -49,6 +90,9 @@ export default function LoginPage() {
                     type="email"
                     placeholder="you@example.com"
                     className="h-11 bg-gray-50 border-gray-200"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
                   />
                 </div>
 
@@ -72,14 +116,18 @@ export default function LoginPage() {
                     type="password"
                     placeholder="Enter your password"
                     className="h-11 bg-gray-50 border-gray-200"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
                   />
                 </div>
 
                 <Button
                   type="submit"
                   className="w-full h-12 bg-[#0047AB] hover:bg-[#003580] text-white font-medium text-base"
+                  disabled={loading}
                 >
-                  Sign in
+                  {loading ? "Signing in..." : "Sign in"}
                   <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </form>
