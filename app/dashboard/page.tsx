@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -51,6 +55,15 @@ const matches = [
 ];
 
 export default function DashboardPage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Redirect to upload page if no matches
+    if (matches.length === 0) {
+      router.push("/upload-page");
+    }
+  }, [router]);
+
   return (
     <div className="min-h-screen flex flex-col">
       <SiteHeader showNav={true} />
