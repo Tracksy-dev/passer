@@ -1,9 +1,15 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Search, Calendar } from "lucide-react";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
 
 const matches = [
   {
@@ -51,6 +57,28 @@ const matches = [
 ];
 
 export default function DashboardPage() {
+const [matches, setMatches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMatches = async () => {
+      const { data, error } = await supabase
+        .from("matches")
+        .select("*")
+        .order("match_date", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching matches:", error);
+      } else {
+        setMatches(data);
+      }
+
+      setLoading(false);
+    };
+
+    fetchMatches();
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col">
       <SiteHeader showNav={true} />
@@ -71,7 +99,7 @@ export default function DashboardPage() {
                   <Input
                     type="text"
                     placeholder="Search by opponent or match details..."
-                    className="h-11 pl-10 bg-gray-50 border-gray-200"
+                    className="h-h1 pl-10 bg-gray-50 border-gray-200"
                   />
                 </div>
               </div>
@@ -93,27 +121,55 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* Loading State */}
+          {loading && (
+            <p className="text-center text-gray-600 text-sm">
+              Loading matches...
+            </p>
+          )}
+
+          {/* Empty State */}
+          {!loading && matches.length === 0 && (
+            <p className="text-center text-gray-600 text-sm">
+              No matches uploaded yet.
+            </p>
+          )}
+
           {/* Match Cards Grid */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {matches.map((match) => (
-              <Card
-                key={match.id}
-                className="p-6 shadow-sm border-gray-200 flex flex-col"
-              >
-                <div className="flex-1 space-y-3">
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {match.title}
-                  </h3>
-                  <p className="text-sm text-gray-600">Date: {match.date}</p>
-                  <p className="text-sm text-gray-700 leading-relaxed">
-                    {match.description}
-                  </p>
-                </div>
-                <Button className="w-full h-11 mt-4 bg-[#0047AB] hover:bg-[#003580] text-white font-medium">
-                  View Report
-                </Button>
-              </Card>
-            ))}
+            {!loading &&
+              matches.map((match) => (
+                <Card
+                  key={match.id}
+                  className="p-6 shadow-sm border-gray-200 flex flex-col"
+                >
+                  <div className="flex-1 space-y-3">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {match.match_name}
+                    </h3>
+
+                    <p className="text-sm text-gray-600">
+                      Date: {match.match_date}
+                    </p>
+
+                    <p className="text-sm text-gray-700">Opponent: {match.opponent}</p>
+
+                    <p className="text-sm text-blue-600 underline">
+                      <a
+                        href={match.video_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        View Video
+                      </a>
+                    </p>
+                  </div>
+
+                  <Button className="w-full h-11 mt-4 bg-[#0047AB] hover:bg-[#003580] text-white font-medium">
+                    View Report
+                  </Button>
+                </Card>
+              ))}
           </div>
         </div>
       </main>
