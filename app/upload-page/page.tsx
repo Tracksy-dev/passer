@@ -3,29 +3,34 @@
 import type React from "react";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
-import { CheckCircle2, AlertCircle } from "lucide-react";
+import { CheckCircle2, AlertCircle, X } from "lucide-react";
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 const ALLOWED_FORMATS = [".mp4", ".mov", ".avi"];
 const ALLOWED_MIME_TYPES = ["video/mp4", "video/quicktime", "video/x-msvideo"];
 
 export default function UploadPage() {
+  const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
-  const [fileUploadComplete, setFileUploadComplete] = useState(false);
-  const [fileUploadError, setFileUploadError] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<
     "idle" | "success" | "error"
   >("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [matchDate, setMatchDate] = useState("");
   const [opponent, setOpponent] = useState("");
+  const [teamName, setTeamName] = useState("DkIT VC");
+  const [uploadAbortController, setUploadAbortController] =
+    useState<AbortController | null>(null);
 
   const validateFile = (file: File): string | null => {
     // Check file type
@@ -62,55 +67,173 @@ export default function UploadPage() {
     return true;
   };
 
-  const simulateFileUpload = (_file: File) => {
-    setIsUploading(true);
-    setUploadProgress(0);
-    setFileUploadComplete(false);
-    setFileUploadError(false);
+  const uploadFileWithProgress = async (
+    fileName: string,
+    file: File,
+    abortController: AbortController
+  ): Promise<void> => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Get upload URL from Supabase
+        const { data: uploadData, error: urlError } = await supabase.storage
+          .from("match-videos")
+          .createSignedUploadUrl(fileName);
 
-    // Simulate file upload progress
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsUploading(false);
-
-          // Simulate random upload success/failure (90% success rate)
-          // In production, this would be based on actual upload result
-          const uploadSuccess = Math.random() > 0.1;
-
-          if (uploadSuccess) {
-            setFileUploadComplete(true);
-            setFileUploadError(false);
-          } else {
-            setFileUploadComplete(false);
-            setFileUploadError(true);
-            setErrorMessage("Failed to upload video. Please try again.");
-          }
-
-          return 100;
+        if (urlError || !uploadData) {
+          // Fallback to regular upload without progress
+          const { error: uploadError } = await supabase.storage
+            .from("match-videos")
+            .upload(fileName, file, {
+              cacheControl: "3600",
+              upsert: false,
+            });
+          if (uploadError) throw uploadError;
+          setUploadProgress(100);
+          resolve();
+          return;
         }
-        return prev + 10;
-      });
-    }, 300);
+
+        // Use XMLHttpRequest for progress tracking
+        const xhr = new XMLHttpRequest();
+
+        // Listen for abort signal
+        abortController.signal.addEventListener("abort", () => {
+          xhr.abort();
+          reject(new Error("Upload cancelled by user"));
+        });
+
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            const percentComplete = Math.round((e.loaded / e.total) * 100);
+            setUploadProgress(percentComplete);
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          if (xhr.status === 200 || xhr.status === 201) {
+            setUploadProgress(100);
+            resolve();
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener("error", () => {
+          reject(new Error("Upload failed"));
+        });
+
+        xhr.addEventListener("abort", () => {
+          reject(new Error("Upload cancelled"));
+        });
+
+        xhr.open("PUT", uploadData.signedUrl);
+        xhr.setRequestHeader("Content-Type", file.type);
+        xhr.send(file);
+      } catch (error) {
+        reject(error);
+      }
+    });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage("");
+
     if (!selectedFile) {
       setErrorMessage("Please select a video file to upload");
       setUploadStatus("error");
       return;
     }
 
-    if (!matchDate || !opponent) {
-      setErrorMessage("Please fill in match date and opponent");
+    if (!matchDate || !opponent || !teamName) {
+      setErrorMessage("Please fill in all required fields");
       setUploadStatus("error");
       return;
     }
 
-    // Submit the data (replace with actual API call later)
-    setUploadStatus("success");
-    // Here you would send the file, matchDate, and opponent to your backend
+    const abortController = new AbortController();
+    setUploadAbortController(abortController);
+
+    try {
+      setIsUploading(true);
+      setUploadStatus("idle");
+      setUploadProgress(0);
+
+      // Generate unique filename
+      const fileExt = selectedFile.name.split(".").pop();
+      const fileName = `${crypto.randomUUID()}.${fileExt}`;
+
+      // Upload to Supabase Storage with progress tracking
+      await uploadFileWithProgress(fileName, selectedFile, abortController);
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from("match-videos")
+        .getPublicUrl(fileName);
+
+      const videoUrl = urlData.publicUrl;
+
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error("You must be logged in to upload videos");
+      }
+
+      // Insert match record into database
+      const { error: dbError } = await supabase.from("matches").insert({
+        user_id: user.id,
+        match_date: matchDate,
+        opponent,
+        team_name: teamName,
+        video_url: videoUrl,
+        video_path: fileName,
+      });
+
+      if (dbError) throw dbError;
+
+      // Success - redirect to dashboard
+      setUploadStatus("success");
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 2000);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Upload failed.";
+      setErrorMessage(errMsg);
+      setUploadStatus("error");
+    } finally {
+      setIsUploading(false);
+      setUploadAbortController(null);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    if (uploadAbortController) {
+      uploadAbortController.abort();
+      setUploadAbortController(null);
+    }
+  };
+
+  const handleClearFile = () => {
+    setSelectedFile(null);
+    setUploadProgress(0);
+    setUploadStatus("idle");
+    setErrorMessage("");
+    // Reset file input
+    const fileInput = document.getElementById(
+      "file-upload"
+    ) as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = "";
+    }
+  };
+
+  const handleRetry = () => {
+    setUploadStatus("idle");
+    setErrorMessage("");
+    setUploadProgress(0);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -129,7 +252,7 @@ export default function UploadPage() {
     const file = e.dataTransfer.files[0];
     if (file && handleFileValidation(file)) {
       setSelectedFile(file);
-      simulateFileUpload(file);
+      setUploadProgress(0);
     }
   };
 
@@ -137,7 +260,7 @@ export default function UploadPage() {
     const file = e.target.files?.[0];
     if (file && handleFileValidation(file)) {
       setSelectedFile(file);
-      simulateFileUpload(file);
+      setUploadProgress(0);
     }
   };
 
@@ -159,9 +282,20 @@ export default function UploadPage() {
           )}
 
           {uploadStatus === "error" && errorMessage && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-              <p className="text-red-800">{errorMessage}</p>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-red-800 font-medium">Upload failed</p>
+                  <p className="text-red-700 text-sm mt-1">{errorMessage}</p>
+                </div>
+              </div>
+              <Button
+                onClick={handleRetry}
+                className="mt-3 bg-red-600 hover:bg-red-700 text-white h-9 px-4"
+              >
+                Try Again
+              </Button>
             </div>
           )}
 
@@ -199,7 +333,12 @@ export default function UploadPage() {
                     ? selectedFile.name
                     : "Drag & Drop your video files here"}
                 </p>
-                <p className="text-gray-500">or</p>
+                {selectedFile && (
+                  <p className="text-sm text-gray-600">
+                    {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+                  </p>
+                )}
+                {!selectedFile && <p className="text-gray-500">or</p>}
               </div>
 
               {/* Upload Button */}
@@ -210,12 +349,27 @@ export default function UploadPage() {
                 accept=".mp4,.mov,.avi"
                 onChange={handleFileSelect}
               />
-              <Button
-                onClick={() => document.getElementById("file-upload")?.click()}
-                className="bg-[#0047AB] hover:bg-[#003580] text-white px-8 h-11"
-              >
-                Click to upload
-              </Button>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() =>
+                    document.getElementById("file-upload")?.click()
+                  }
+                  className="bg-[#0047AB] hover:bg-[#003580] text-white px-8 h-11"
+                  disabled={isUploading}
+                >
+                  {selectedFile ? "Change Video" : "Click to upload"}
+                </Button>
+                {selectedFile && !isUploading && (
+                  <Button
+                    onClick={handleClearFile}
+                    variant="outline"
+                    className="border-gray-300 text-gray-700 hover:bg-gray-100 px-6 h-11"
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Clear
+                  </Button>
+                )}
+              </div>
 
               {/* Supported Formats */}
               <p className="text-sm text-gray-600 mt-2">
@@ -242,61 +396,47 @@ export default function UploadPage() {
                     style={{ width: `${uploadProgress}%` }}
                   />
                 </div>
-                <p className="text-xs text-gray-600">
-                  Please wait while we upload your video file...
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* File Upload Success Message */}
-          {fileUploadComplete && !isUploading && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-              <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-              <div>
-                <p className="text-green-800 font-medium">
-                  Video uploaded successfully!
-                </p>
-                <p className="text-green-700 text-sm mt-1">
-                  Please fill in the match details below and click Submit.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* File Upload Error Message */}
-          {fileUploadError && !isUploading && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-              <div>
-                <p className="text-red-800 font-medium">Upload failed</p>
-                <p className="text-red-700 text-sm mt-1">
-                  {errorMessage || "Failed to upload video. Please try again."}
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-600">
+                    Please wait while we upload your video file...
+                  </p>
+                  <Button
+                    onClick={handleCancelUpload}
+                    variant="outline"
+                    className="border-red-300 text-red-600 hover:bg-red-50 h-8 px-3 text-xs"
+                  >
+                    Cancel Upload
+                  </Button>
+                </div>
               </div>
             </div>
           )}
 
           {/* Match Details Form */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+          <form
+            onSubmit={handleSubmit}
+            className="bg-white rounded-lg shadow-sm border border-gray-200 p-8"
+          >
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Match Date */}
+              {/* Team Name */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-900">
-                  Match Date
+                  Your Team Name
                 </label>
                 <Input
-                  type="date"
+                  type="text"
+                  placeholder="e.g., DkIT VC"
                   className="h-11 bg-gray-50 border-gray-200"
-                  value={matchDate}
-                  onChange={(e) => setMatchDate(e.target.value)}
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  required
                 />
               </div>
 
               {/* Opponent */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-900">
-                  Opponent
+                  Opponent Team
                 </label>
                 <Input
                   type="text"
@@ -304,25 +444,39 @@ export default function UploadPage() {
                   className="h-11 bg-gray-50 border-gray-200"
                   value={opponent}
                   onChange={(e) => setOpponent(e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* Match Date */}
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-gray-900">
+                  Match Date
+                </label>
+                <DatePicker
+                  value={matchDate}
+                  onChange={setMatchDate}
+                  placeholder="Select match date"
+                  required
                 />
               </div>
             </div>
 
             {/* Submit Button */}
             <Button
-              onClick={handleSubmit}
+              type="submit"
               disabled={
                 isUploading ||
-                !fileUploadComplete ||
                 !selectedFile ||
                 !matchDate ||
-                !opponent
+                !opponent ||
+                !teamName
               }
               className="w-full h-12 mt-6 bg-gradient-to-r from-[#0047AB] to-[#E8A550] hover:opacity-90 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Submit
+              {isUploading ? "Uploading..." : "Submit"}
             </Button>
-          </div>
+          </form>
         </div>
       </main>
 
