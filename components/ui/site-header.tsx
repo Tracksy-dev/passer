@@ -18,7 +18,10 @@ export function SiteHeader({ showNav = false }: { showNav?: boolean }) {
             >
               Dashboard
             </Link>
-            <Link href="/upload" className="text-white hover:text-gray-200">
+            <Link
+              href="/upload-page"
+              className="text-white hover:text-gray-200"
+            >
               Upload Video
             </Link>
             <Button

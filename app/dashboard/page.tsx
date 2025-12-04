@@ -1,83 +1,118 @@
 "use client";
 
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
+import { AlertDialog } from "@/components/ui/alert-dialog";
 import { Card } from "@/components/ui/card";
-import { Search, Calendar } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
-
-
-const matches = [
-  {
-    id: 1,
-    title: "DkIT VC vs St. Mary's College",
-    date: "2023-11-01",
-    description:
-      "DkIT VC won 3-0 (25-17, 25-18, 25-17). Strong performance with 95% AI confidence in scoring analysis.",
-  },
-  {
-    id: 2,
-    title: "DkIT VC vs Trinity College Dublin",
-    date: "2023-11-02",
-    description:
-      "Close match ending 3-2 (25-23, 23-25, 25-21, 20-25, 15-13). Point-by-point replay available.",
-  },
-  {
-    id: 3,
-    title: "DkIT VC vs UCD",
-    date: "2023-11-03",
-    description:
-      "Dominant 3-0 victory (25-15, 25-18, 25-16). Full set breakdowns and highlight reels available.",
-  },
-  {
-    id: 4,
-    title: "DkIT VC vs DCU",
-    date: "2023-11-05",
-    description:
-      "Hard-fought 3-1 win (25-20, 22-25, 25-19, 25-17). 92% AI confidence in analysis.",
-  },
-  {
-    id: 5,
-    title: "DkIT VC vs IT Carlow",
-    date: "2023-11-07",
-    description:
-      "Competitive 3-2 victory (23-25, 25-22, 25-23, 21-25, 15-12). Rally-by-rally breakdown available.",
-  },
-  {
-    id: 6,
-    title: "DkIT VC vs Maynooth University",
-    date: "2023-11-10",
-    description:
-      "Convincing 3-0 win (25-18, 25-20, 25-16). Complete scoring timeline with action types.",
-  },
-];
+interface Match {
+  id: string;
+  opponent: string;
+  team_name: string;
+  match_date: string;
+  video_url: string;
+  video_path: string;
+  created_at: string;
+}
 
 export default function DashboardPage() {
-const [matches, setMatches] = useState<any[]>([]);
+  const router = useRouter();
+  const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [matchToDelete, setMatchToDelete] = useState<Match | null>(null);
 
-  useEffect(() => {
-    const fetchMatches = async () => {
+  const fetchMatches = useCallback(async () => {
+    try {
       const { data, error } = await supabase
         .from("matches")
         .select("*")
         .order("match_date", { ascending: false });
 
-      if (error) {
-        console.error("Error fetching matches:", error);
-      } else {
-        setMatches(data);
+      if (error) throw error;
+
+      setMatches(data || []);
+
+      // Redirect to upload page if no matches
+      if (!data || data.length === 0) {
+        router.push("/upload-page");
+      }
+    } catch (error) {
+      console.error("Error fetching matches:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    fetchMatches();
+  }, [fetchMatches]);
+
+  const handleDeleteMatch = (match: Match) => {
+    setMatchToDelete(match);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteMatch = async () => {
+    if (!matchToDelete) return;
+
+    setDeletingMatchId(matchToDelete.id);
+
+    try {
+      // Delete video file from storage
+      const { error: storageError } = await supabase.storage
+        .from("match-videos")
+        .remove([matchToDelete.video_path]);
+
+      if (storageError) {
+        console.error("Error deleting video file:", storageError);
+        // Continue with database deletion even if storage deletion fails
       }
 
-      setLoading(false);
-    };
+      // Delete match record from database
+      const { error: dbError } = await supabase
+        .from("matches")
+        .delete()
+        .eq("id", matchToDelete.id);
 
-    fetchMatches();
-  }, []);
+      if (dbError) throw dbError;
+
+      // Update local state to remove the deleted match
+      setMatches((prevMatches) =>
+        prevMatches.filter((m) => m.id !== matchToDelete.id)
+      );
+
+      // Redirect to upload page if no matches left
+      if (matches.length === 1) {
+        router.push("/upload-page");
+      }
+    } catch (error) {
+      console.error("Error deleting match:", error);
+      alert("Failed to delete match. Please try again.");
+    } finally {
+      setDeletingMatchId(null);
+      setMatchToDelete(null);
+    }
+  };
+
+  // Filter matches based on search and date
+  const filteredMatches = matches.filter((match) => {
+    const matchesSearch = searchQuery
+      ? match.opponent.toLowerCase().includes(searchQuery.toLowerCase())
+      : true;
+    const matchesDate = dateFilter ? match.match_date === dateFilter : true;
+    return matchesSearch && matchesDate;
+  });
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -99,7 +134,9 @@ const [matches, setMatches] = useState<any[]>([]);
                   <Input
                     type="text"
                     placeholder="Search by opponent or match details..."
-                    className="h-h1 pl-10 bg-gray-50 border-gray-200"
+                    className="h-11 pl-10 bg-gray-50 border-gray-200"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                   />
                 </div>
               </div>
@@ -109,72 +146,99 @@ const [matches, setMatches] = useState<any[]>([]);
                 <label className="text-sm font-medium text-gray-900">
                   Filter by date
                 </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <Input
-                    type="text"
-                    placeholder="Pick a date"
-                    className="h-11 pl-10 bg-gray-50 border-gray-200"
-                  />
-                </div>
+                <DatePicker
+                  value={dateFilter}
+                  onChange={setDateFilter}
+                  placeholder="Pick a date"
+                  showIcon
+                />
               </div>
             </div>
           </div>
 
           {/* Loading State */}
           {loading && (
-            <p className="text-center text-gray-600 text-sm">
-              Loading matches...
-            </p>
+            <div className="text-center py-12">
+              <p className="text-gray-600">Loading matches...</p>
+            </div>
           )}
 
           {/* Empty State */}
-          {!loading && matches.length === 0 && (
-            <p className="text-center text-gray-600 text-sm">
-              No matches uploaded yet.
-            </p>
+          {!loading && filteredMatches.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-gray-600">
+                {searchQuery || dateFilter
+                  ? "No matches found with the current filters."
+                  : "No matches yet. Upload your first match video!"}
+              </p>
+            </div>
           )}
 
           {/* Match Cards Grid */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {!loading &&
-              matches.map((match) => (
+          {!loading && filteredMatches.length > 0 && (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredMatches.map((match) => (
                 <Card
                   key={match.id}
                   className="p-6 shadow-sm border-gray-200 flex flex-col"
                 >
                   <div className="flex-1 space-y-3">
                     <h3 className="text-lg font-semibold text-gray-900">
-                      {match.match_name}
+                      {match.team_name || "DkIT VC"} vs {match.opponent}
                     </h3>
-
                     <p className="text-sm text-gray-600">
-                      Date: {match.match_date}
+                      Date: {new Date(match.match_date).toLocaleDateString()}
                     </p>
-
-                    <p className="text-sm text-gray-700">Opponent: {match.opponent}</p>
-
-                    <p className="text-sm text-blue-600 underline">
-                      <a
-                        href={match.video_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        View Video
-                      </a>
+                    <p className="text-sm text-gray-700 leading-relaxed">
+                      Match video uploaded on{" "}
+                      {new Date(match.created_at).toLocaleDateString()}
                     </p>
                   </div>
-
-                  <Button className="w-full h-11 mt-4 bg-[#0047AB] hover:bg-[#003580] text-white font-medium">
-                    View Report
-                  </Button>
+                  <div className="flex gap-2 mt-4">
+                    <Button className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium">
+                      View Report
+                    </Button>
+                    <Button
+                      onClick={() => handleDeleteMatch(match)}
+                      disabled={deletingMatchId === match.id}
+                      variant="outline"
+                      className="h-11 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 disabled:opacity-50"
+                    >
+                      {deletingMatchId === match.id ? (
+                        <span className="text-xs">Deleting...</span>
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
                 </Card>
               ))}
-          </div>
+            </div>
+          )}
         </div>
       </main>
 
       <SiteFooter />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Match"
+        description={
+          matchToDelete
+            ? `Are you sure you want to delete "${
+                matchToDelete.team_name || "DkIT VC"
+              } vs ${
+                matchToDelete.opponent
+              }"? This will permanently delete the match video and all associated data. This action cannot be undone.`
+            : ""
+        }
+        confirmText="Delete Match"
+        cancelText="Cancel"
+        onConfirm={confirmDeleteMatch}
+        variant="danger"
+      />
     </div>
   );
 }
