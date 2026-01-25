@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ import { CheckCircle2, AlertCircle, X } from "lucide-react";
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 const ALLOWED_FORMATS = [".mp4", ".mov", ".avi"];
 const ALLOWED_MIME_TYPES = ["video/mp4", "video/quicktime", "video/x-msvideo"];
+
+
 
 export default function UploadPage() {
   const router = useRouter();
@@ -32,6 +34,22 @@ export default function UploadPage() {
   const [uploadAbortController, setUploadAbortController] =
     useState<AbortController | null>(null);
 
+
+  useEffect(() => {
+  const checkUser = async () => {
+    const { data, error } = await supabase.auth.getSession();
+
+    if (error) {
+      console.error("Supabase session error:", error);
+      return;
+    }
+
+    console.log("Supabase session:", data.session);
+    console.log("Supabase user:", data.session?.user);
+  };
+
+  checkUser();
+}, []);
   const validateFile = (file: File): string | null => {
     // Check file type
     const fileExtension = "." + file.name.split(".").pop()?.toLowerCase();
@@ -182,6 +200,8 @@ export default function UploadPage() {
         throw new Error("You must be logged in to upload videos");
       }
 
+      
+
       // Insert match record into database
       const { error: dbError } = await supabase.from("matches").insert({
         user_id: user.id,
@@ -263,6 +283,8 @@ export default function UploadPage() {
       setUploadProgress(0);
     }
   };
+
+  
 
   return (
     <div className="min-h-screen flex flex-col">
