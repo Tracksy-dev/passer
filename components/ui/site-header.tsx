@@ -24,12 +24,12 @@ export function SiteHeader({ showNav = false }: { showNav?: boolean }) {
             >
               Upload Video
             </Link>
-            <Button
-              variant="outline"
-              className="bg-white text-[#0047AB] hover:bg-gray-100 border-0"
+             <Link
+              href="/profile"
+              className="text-white hover:text-gray-200"
             >
-              Logout
-            </Button>
+              Profile
+            </Link>
           </nav>
         )}
       </div>
