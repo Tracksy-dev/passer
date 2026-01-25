@@ -42,10 +42,6 @@ export default function UploadPage() {
     if (error) {
       console.error("Supabase session error:", error);
       return;
-    }
-
-    console.log("Supabase session:", data.session);
-    console.log("Supabase user:", data.session?.user);
   };
 
   checkUser();
