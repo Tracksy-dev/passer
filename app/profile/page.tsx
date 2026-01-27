@@ -102,12 +102,14 @@ export default function ProfilePage() {
   setError("");
 
   try {
+    const oldPath: string | undefined = user?.user_metadata?.avatar_path;
+
     const ext = selectedFile.name.split(".").pop()?.toLowerCase() || "jpg";
-    const filePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
+    const newPath = `${user.id}/${crypto.randomUUID()}.${ext}`;
 
     const { error: uploadErr } = await supabase.storage
       .from("avatars")
-      .upload(filePath, selectedFile, {
+      .upload(newPath, selectedFile, {
         upsert: true,
         cacheControl: "3600",
         contentType: selectedFile.type,
@@ -117,21 +119,37 @@ export default function ProfilePage() {
 
     const { data: publicData } = supabase.storage
       .from("avatars")
-      .getPublicUrl(filePath);
-
-    const publicUrl = publicData.publicUrl;
+      .getPublicUrl(newPath);
+    const newUrl = publicData.publicUrl;
 
     const { data: updated, error: updateErr } = await supabase.auth.updateUser({
-      data: { avatar_url: publicUrl },
+      data: { avatar_url: newUrl, avatar_path: newPath },
     });
 
-    if (updateErr) throw updateErr;
+    if (updateErr) {
+      await supabase.storage.from("avatars").remove([newPath]);
+      throw updateErr;
+    }
 
-    setAvatarUrl(updated.user?.user_metadata?.avatar_url ?? publicUrl);
+    const updatedUser = updated.user;
+    setUser(updatedUser);
+    setAvatarUrl(updatedUser?.user_metadata?.avatar_url ?? newUrl);
+
     setSelectedFile(null);
-
     const input = document.getElementById("avatar") as HTMLInputElement | null;
     if (input) input.value = "";
+
+    if (
+      oldPath &&
+      oldPath.startsWith(`${user.id}/`) &&
+      oldPath !== newPath
+    ) {
+      const { error: removeErr } = await supabase.storage
+        .from("avatars")
+        .remove([oldPath]);
+
+      if (removeErr) console.warn("Failed to delete old avatar:", removeErr);
+    }
 
     return true;
   } catch (err: any) {
@@ -142,6 +160,7 @@ export default function ProfilePage() {
     setSavingPhoto(false);
   }
 };
+
 
 
   const handleSignOut = async () => {

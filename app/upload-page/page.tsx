@@ -36,16 +36,18 @@ export default function UploadPage() {
 
 
   useEffect(() => {
-  const checkUser = async () => {
-    const { data, error } = await supabase.auth.getSession();
+    const checkUser = async () => {
+      const { data, error } = await supabase.auth.getSession();
 
-    if (error) {
-      console.error("Supabase session error:", error);
-      return;
-  };
+      if (error) {
+        console.error("Supabase session error:", error);
+        return;
+      }
+    };
 
-  checkUser();
-}, []);
+    checkUser();
+  }, []);
+
   const validateFile = (file: File): string | null => {
     // Check file type
     const fileExtension = "." + file.name.split(".").pop()?.toLowerCase();
