@@ -43,7 +43,7 @@ export default function DashboardPage() {
 
       setMatches(data || []);
 
-      // Redirect to upload page if no matches
+      // Redirect to upload page if no matches (demo cards are for demonstration only)
       if (!data || data.length === 0) {
         router.push("/upload-page");
       }
@@ -89,7 +89,7 @@ export default function DashboardPage() {
 
       // Update local state to remove the deleted match
       setMatches((prevMatches) =>
-        prevMatches.filter((m) => m.id !== matchToDelete.id)
+        prevMatches.filter((m) => m.id !== matchToDelete.id),
       );
 
       // Redirect to upload page if no matches left
@@ -174,46 +174,161 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Match Cards Grid */}
-          {!loading && filteredMatches.length > 0 && (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredMatches.map((match) => (
-                <Card
-                  key={match.id}
-                  className="p-6 shadow-sm border-gray-200 flex flex-col"
-                >
+          {/* Demo Match Card (Mock Data) */}
+          {!loading && (
+            <>
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200 p-4 mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                        DEMO
+                      </span>
+                      <p className="text-sm font-medium text-gray-900">
+                        Sample match with full analysis and point-by-point
+                        breakdown
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                {/* Demo Match Cards */}
+                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                      DEMO
+                    </span>
+                  </div>
                   <div className="flex-1 space-y-3">
                     <h3 className="text-lg font-semibold text-gray-900">
-                      {match.team_name || "DkIT VC"} vs {match.opponent}
+                      DkIT VC vs St. Mary's College
                     </h3>
                     <p className="text-sm text-gray-600">
-                      Date: {new Date(match.match_date).toLocaleDateString()}
+                      Date: November 1, 2023
                     </p>
                     <p className="text-sm text-gray-700 leading-relaxed">
-                      Match video uploaded on{" "}
-                      {new Date(match.created_at).toLocaleDateString()}
+                      3-0 Victory • 95% Analysis Confidence
                     </p>
                   </div>
                   <div className="flex gap-2 mt-4">
-                    <Button className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium">
-                      View Report
-                    </Button>
                     <Button
-                      onClick={() => handleDeleteMatch(match)}
-                      disabled={deletingMatchId === match.id}
-                      variant="outline"
-                      className="h-11 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 disabled:opacity-50"
+                      onClick={() => router.push("/match/1/set/1")}
+                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
                     >
-                      {deletingMatchId === match.id ? (
-                        <span className="text-xs">Deleting...</span>
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
+                      View Report
                     </Button>
                   </div>
                 </Card>
-              ))}
-            </div>
+
+                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                      DEMO
+                    </span>
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      DkIT VC vs Trinity College Dublin
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      Date: November 2, 2023
+                    </p>
+                    <p className="text-sm text-gray-700 leading-relaxed">
+                      3-2 Victory • 91% Analysis Confidence
+                    </p>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <Button
+                      onClick={() => router.push("/match/2/set/1")}
+                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
+                    >
+                      View Report
+                    </Button>
+                  </div>
+                </Card>
+
+                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                      DEMO
+                    </span>
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      DkIT VC vs UCD
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      Date: November 3, 2023
+                    </p>
+                    <p className="text-sm text-gray-700 leading-relaxed">
+                      3-0 Victory • 97% Analysis Confidence
+                    </p>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <Button
+                      onClick={() => router.push("/match/3/set/1")}
+                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
+                    >
+                      View Report
+                    </Button>
+                  </div>
+                </Card>
+              </div>
+            </>
+          )}
+
+          {/* User's Uploaded Matches */}
+          {!loading && filteredMatches.length > 0 && (
+            <>
+              <div className="border-t border-gray-300 pt-8 mb-6">
+                <h2 className="text-xl font-bold text-gray-900">
+                  Your Uploaded Matches
+                </h2>
+              </div>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredMatches.map((match) => (
+                  <Card
+                    key={match.id}
+                    className="p-6 shadow-sm border-gray-200 flex flex-col"
+                  >
+                    <div className="flex-1 space-y-3">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        {match.team_name || "DkIT VC"} vs {match.opponent}
+                      </h3>
+                      <p className="text-sm text-gray-600">
+                        Date: {new Date(match.match_date).toLocaleDateString()}
+                      </p>
+                      <p className="text-sm text-gray-700 leading-relaxed">
+                        Match video uploaded on{" "}
+                        {new Date(match.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        onClick={() => router.push(`/match/${match.id}/set/1`)}
+                        className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
+                      >
+                        View Report
+                      </Button>
+                      <Button
+                        onClick={() => handleDeleteMatch(match)}
+                        disabled={deletingMatchId === match.id}
+                        variant="outline"
+                        className="h-11 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 disabled:opacity-50"
+                      >
+                        {deletingMatchId === match.id ? (
+                          <span className="text-xs">Deleting...</span>
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </main>
