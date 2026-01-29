@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
+  Circle,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -34,6 +35,15 @@ function ResetPasswordForm() {
     password?: string;
     confirmPassword?: string;
   }>({});
+
+  // Track password requirements
+  const passwordRequirements = {
+    minLength: password.length >= 8,
+    hasUppercase: /[A-Z]/.test(password),
+    hasLowercase: /[a-z]/.test(password),
+    hasNumber: /[0-9]/.test(password),
+    hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+  };
 
   // Validate token on mount - Supabase automatically validates the hash from the email link
   useEffect(() => {
@@ -69,7 +79,18 @@ function ResetPasswordForm() {
     const newErrors: { password?: string; confirmPassword?: string } = {};
 
     if (password.length < 8) {
-      newErrors.password = "Password must be at least 8 characters";
+      newErrors.password = "Password must be at least 8 characters long";
+    } else if (!/[A-Z]/.test(password)) {
+      newErrors.password =
+        "Password must contain at least one uppercase letter";
+    } else if (!/[a-z]/.test(password)) {
+      newErrors.password =
+        "Password must contain at least one lowercase letter";
+    } else if (!/[0-9]/.test(password)) {
+      newErrors.password = "Password must contain at least one number";
+    } else if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      newErrors.password =
+        "Password must contain at least one special character";
     }
 
     if (password !== confirmPassword) {
@@ -234,11 +255,94 @@ function ResetPasswordForm() {
             </div>
             {errors.password ? (
               <p className="text-xs text-red-500">{errors.password}</p>
-            ) : (
-              <p className="text-xs text-gray-600">
-                Must be at least 8 characters
+            ) : null}
+            <div className="text-xs space-y-1.5 mt-2">
+              <p className="font-medium text-gray-700">
+                Password must contain:
               </p>
-            )}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  {passwordRequirements.minLength ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Circle className="h-4 w-4 text-gray-400" />
+                  )}
+                  <span
+                    className={
+                      passwordRequirements.minLength
+                        ? "text-green-700"
+                        : "text-gray-600"
+                    }
+                  >
+                    At least 8 characters
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {passwordRequirements.hasUppercase ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Circle className="h-4 w-4 text-gray-400" />
+                  )}
+                  <span
+                    className={
+                      passwordRequirements.hasUppercase
+                        ? "text-green-700"
+                        : "text-gray-600"
+                    }
+                  >
+                    One uppercase letter
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {passwordRequirements.hasLowercase ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Circle className="h-4 w-4 text-gray-400" />
+                  )}
+                  <span
+                    className={
+                      passwordRequirements.hasLowercase
+                        ? "text-green-700"
+                        : "text-gray-600"
+                    }
+                  >
+                    One lowercase letter
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {passwordRequirements.hasNumber ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Circle className="h-4 w-4 text-gray-400" />
+                  )}
+                  <span
+                    className={
+                      passwordRequirements.hasNumber
+                        ? "text-green-700"
+                        : "text-gray-600"
+                    }
+                  >
+                    One number
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {passwordRequirements.hasSpecialChar ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Circle className="h-4 w-4 text-gray-400" />
+                  )}
+                  <span
+                    className={
+                      passwordRequirements.hasSpecialChar
+                        ? "text-green-700"
+                        : "text-gray-600"
+                    }
+                  >
+                    One special character (!@#$%^&*...)
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-2">
