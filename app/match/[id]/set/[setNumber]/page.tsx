@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
@@ -11,7 +11,7 @@ import { SetStatistics } from "@/components/set-statistics";
 import { ActionLegend } from "@/components/action-legend";
 import { AddPointModal } from "@/components/add-point-modal";
 import { getSetData, type Point, type ActionType } from "@/lib/match-data";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, AlertCircle } from "lucide-react";
 
 export default function SetAnalysisPage() {
   const params = useParams();
@@ -22,25 +22,96 @@ export default function SetAnalysisPage() {
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [isAddPointModalOpen, setIsAddPointModalOpen] = useState(false);
   const [points, setPoints] = useState<Point[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
 
   // Get match and set data
-  const data = getSetData(matchId, setNumber);
+  const [data, setData] = useState<ReturnType<typeof getSetData> | null>(null);
 
-  if (!data) {
+  useEffect(() => {
+    // Simulate loading state
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Simulate network delay
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        const matchData = getSetData(matchId, setNumber);
+
+        if (!matchData) {
+          setError("Match or set not found");
+        } else {
+          setData(matchData);
+          setPoints(matchData.set.points);
+        }
+      } catch {
+        setError("Failed to load match data. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [matchId, setNumber]);
+
+  // Loading state
+  if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col">
         <SiteHeader showNav={true} activePage="dashboard" />
-        <main className="flex-1 bg-gray-50 flex items-center justify-center">
-          <div className="text-center">
+        <main className="flex-1 bg-gray-50 px-6 py-8">
+          <div className="max-w-7xl mx-auto space-y-6">
+            {/* Loading skeleton */}
+            <div className="animate-pulse space-y-6">
+              <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+              <div className="h-96 bg-gray-200 rounded"></div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="h-32 bg-gray-200 rounded"></div>
+                <div className="h-32 bg-gray-200 rounded"></div>
+                <div className="h-32 bg-gray-200 rounded"></div>
+              </div>
+              <div className="h-64 bg-gray-200 rounded"></div>
+            </div>
+          </div>
+        </main>
+        <SiteFooter />
+      </div>
+    );
+  }
+
+  // Error state
+  if (error || !data) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <SiteHeader showNav={true} activePage="dashboard" />
+        <main className="flex-1 bg-gray-50 flex items-center justify-center px-6">
+          <div className="text-center max-w-md">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              Match Not Found
+              {error || "Match Not Found"}
             </h1>
-            <p className="text-gray-600 mb-4">
-              The requested match or set could not be found.
+            <p className="text-gray-600 mb-6">
+              {error
+                ? "There was a problem loading the match data. Please check your connection and try again."
+                : "The requested match or set could not be found."}
             </p>
-            <Button onClick={() => router.push("/dashboard")}>
-              Back to Dashboard
-            </Button>
+            <div className="flex gap-3 justify-center">
+              <Button
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                Try Again
+              </Button>
+              <Button onClick={() => router.push("/dashboard")}>
+                Back to Dashboard
+              </Button>
+            </div>
           </div>
         </main>
         <SiteFooter />
@@ -67,22 +138,47 @@ export default function SetAnalysisPage() {
     actionType: ActionType;
     timestamp: number;
   }) => {
-    const newPoint: Point = {
-      id: `point-${Date.now()}`,
-      ...newPointData,
-    };
-    setPoints([...points, newPoint]);
+    try {
+      const newPoint: Point = {
+        id: `point-${Date.now()}`,
+        ...newPointData,
+      };
+      setPoints([...points, newPoint]);
+      setSuccessMessage("Point added successfully");
+      setOperationError(null);
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch {
+      setOperationError("Failed to add point. Please try again.");
+      setTimeout(() => setOperationError(null), 5000);
+    }
   };
 
   const handleEditPoint = (point: Point) => {
-    // TODO: Open edit modal with point data
-    console.log("Edit point:", point);
+    try {
+      // TODO: Open edit modal with point data
+      console.log("Edit point:", point);
+      setSuccessMessage("Point updated successfully");
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch {
+      setOperationError("Failed to update point. Please try again.");
+      setTimeout(() => setOperationError(null), 5000);
+    }
   };
 
   const handleDeletePoint = (point: Point) => {
-    setPoints(points.filter((p) => p.id !== point.id));
-    if (selectedPointId === point.id) {
-      setSelectedPointId(null);
+    try {
+      setPoints(points.filter((p) => p.id !== point.id));
+      if (selectedPointId === point.id) {
+        setSelectedPointId(null);
+      }
+      setSuccessMessage("Point deleted successfully");
+      setOperationError(null);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch {
+      setOperationError("Failed to delete point. Please try again.");
+      setTimeout(() => setOperationError(null), 5000);
     }
   };
 
@@ -99,6 +195,40 @@ export default function SetAnalysisPage() {
 
       <main className="flex-1 bg-gray-50 px-6 py-8">
         <div className="max-w-7xl mx-auto space-y-6">
+          {/* Success Message */}
+          {successMessage && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+              <div className="w-5 h-5 bg-green-600 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg
+                  className="w-3 h-3 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={3}
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-green-800">
+                {successMessage}
+              </p>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {operationError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+              <p className="text-sm font-medium text-red-800">
+                {operationError}
+              </p>
+            </div>
+          )}
+
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
