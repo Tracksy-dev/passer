@@ -33,7 +33,6 @@ export function AddPointModal({
   onClose,
   onAddPoint,
   homeTeam,
-  awayTeam,
 }: AddPointModalProps) {
   const [scoringTeam, setScoringTeam] = useState<"home" | "away">("home");
   const [homeScore, setHomeScore] = useState(0);

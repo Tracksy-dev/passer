@@ -26,11 +26,44 @@ export default function DashboardPage() {
   const router = useRouter();
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [matchToDelete, setMatchToDelete] = useState<Match | null>(null);
+
+  // Check authentication
+  useEffect(() => {
+    const checkAuth = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.push("/login");
+        return;
+      }
+
+      setIsAuthenticated(true);
+    };
+
+    checkAuth();
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!session) {
+        setIsAuthenticated(false);
+        router.push("/login");
+      } else {
+        setIsAuthenticated(true);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
 
   const fetchMatches = useCallback(async () => {
     try {
@@ -113,6 +146,11 @@ export default function DashboardPage() {
     const matchesDate = dateFilter ? match.match_date === dateFilter : true;
     return matchesSearch && matchesDate;
   });
+
+  // Don't render anything until authentication is verified
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -203,7 +241,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex-1 space-y-3">
                     <h3 className="text-lg font-semibold text-gray-900">
-                      DkIT VC vs St. Mary's College
+                      DkIT VC vs St. Mary&apos;s College
                     </h3>
                     <p className="text-sm text-gray-600">
                       Date: November 1, 2023
