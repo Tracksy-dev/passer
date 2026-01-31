@@ -5,16 +5,22 @@ import { LogOut } from "lucide-react";
 
 interface SiteHeaderProps {
   showNav?: boolean;
-  activePage?: "dashboard" | "upload";
+  activePage?: "dashboard" | "upload" | "profile";
 }
 
 export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
   return (
     <header className="bg-[#0047AB] px-6 py-4">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
-        <Link href="/dashboard">
-          <PasserLogo />
-        </Link>
+        {showNav ? (
+          <Link href="/dashboard">
+            <PasserLogo />
+          </Link>
+        ) : (
+          <div className="cursor-default">
+            <PasserLogo />
+          </div>
+        )}
 
         {showNav && (
           <nav className="flex items-center gap-8">
@@ -37,6 +43,16 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
               }
             >
               Upload Video
+            </Link>
+            <Link
+              href="/profile"
+              className={
+                activePage === "profile"
+                  ? "text-[#F5A623] font-medium"
+                  : "text-white hover:text-gray-200"
+              }
+            >
+              Profile
             </Link>
             <Link href="/login">
               <Button
