@@ -83,149 +83,155 @@ export default function UploadPage() {
     return true;
   };
 
-  const uploadFileWithProgress = async (
-    fileName: string,
-    file: File,
-    abortController: AbortController
-  ): Promise<void> => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        // Get upload URL from Supabase
-        const { data: uploadData, error: urlError } = await supabase.storage
-          .from("match-videos")
-          .createSignedUploadUrl(fileName);
+  const SIGNED_UPLOAD_MAX = 500 * 1024 * 1024; // 50MB (safe cutoff)
 
-        if (urlError || !uploadData) {
-          // Fallback to regular upload without progress
-          const { error: uploadError } = await supabase.storage
-            .from("match-videos")
-            .upload(fileName, file, {
-              cacheControl: "3600",
-              upsert: false,
-            });
-          if (uploadError) throw uploadError;
-          setUploadProgress(100);
-          resolve();
-          return;
-        }
+const uploadFileWithProgress = async (
+  fileName: string,
+  file: File,
+  abortController: AbortController
+): Promise<void> => {
+  // If file is large, skip signed-upload route (it’s the one failing)
+  if (file.size > SIGNED_UPLOAD_MAX) {
+    const { error } = await supabase.storage
+      .from("match-videos")
+      .upload(fileName, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
 
-        // Use XMLHttpRequest for progress tracking
-        const xhr = new XMLHttpRequest();
+    if (error) throw error;
+    setUploadProgress(100);
+    return;
+  }
 
-        // Listen for abort signal
-        abortController.signal.addEventListener("abort", () => {
-          xhr.abort();
-          reject(new Error("Upload cancelled by user"));
-        });
+  // Otherwise try signed upload (keep your progress)
+  const { data: uploadData, error: urlError } = await supabase.storage
+    .from("match-videos")
+    .createSignedUploadUrl(fileName, {
+      contentType: file.type,
+      upsert: false,
+    });
 
-        xhr.upload.addEventListener("progress", (e) => {
-          if (e.lengthComputable) {
-            const percentComplete = Math.round((e.loaded / e.total) * 100);
-            setUploadProgress(percentComplete);
-          }
-        });
+  if (urlError || !uploadData) {
+    // fallback
+    const { error } = await supabase.storage
+      .from("match-videos")
+      .upload(fileName, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
+    if (error) throw error;
+    setUploadProgress(100);
+    return;
+  }
 
-        xhr.addEventListener("load", () => {
-          if (xhr.status === 200 || xhr.status === 201) {
-            setUploadProgress(100);
-            resolve();
-          } else {
-            reject(new Error(`Upload failed with status ${xhr.status}`));
-          }
-        });
+  // XHR for progress
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
 
-        xhr.addEventListener("error", () => {
-          reject(new Error("Upload failed"));
-        });
+    abortController.signal.addEventListener("abort", () => {
+      xhr.abort();
+      reject(new Error("Upload cancelled by user"));
+    });
 
-        xhr.addEventListener("abort", () => {
-          reject(new Error("Upload cancelled"));
-        });
-
-        xhr.open("PUT", uploadData.signedUrl);
-        xhr.setRequestHeader("Content-Type", file.type);
-        xhr.send(file);
-      } catch (error) {
-        reject(error);
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        setUploadProgress(Math.round((e.loaded / e.total) * 100));
       }
     });
-  };
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status === 200 || xhr.status === 201) return resolve();
+      // log real error body
+      console.error("Signed upload failed:", xhr.status, xhr.responseText);
+      reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+    });
+
+    xhr.addEventListener("error", () => reject(new Error("Upload failed")));
+    xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+
+    xhr.open("PUT", uploadData.signedUrl);
+    xhr.setRequestHeader("Content-Type", file.type);
+    xhr.send(file);
+  });
+
+  setUploadProgress(100);
+};
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage("");
+  e.preventDefault();
+  setErrorMessage("");
 
-    if (!selectedFile) {
-      setErrorMessage("Please select a video file to upload");
-      setUploadStatus("error");
-      return;
-    }
+  if (!selectedFile) {
+    setErrorMessage("Please select a video file to upload");
+    setUploadStatus("error");
+    return;
+  }
 
-    if (!matchDate || !opponent || !teamName) {
-      setErrorMessage("Please fill in all required fields");
-      setUploadStatus("error");
-      return;
-    }
+  if (!matchDate || !opponent || !teamName) {
+    setErrorMessage("Please fill in all required fields");
+    setUploadStatus("error");
+    return;
+  }
 
-    const abortController = new AbortController();
-    setUploadAbortController(abortController);
+  const abortController = new AbortController();
+  setUploadAbortController(abortController);
 
-    try {
-      setIsUploading(true);
-      setUploadStatus("idle");
-      setUploadProgress(0);
+  try {
+    setIsUploading(true);
+    setUploadStatus("idle");
+    setUploadProgress(0);
 
-      // Generate unique filename
-      const fileExt = selectedFile.name.split(".").pop();
-      const fileName = `${crypto.randomUUID()}.${fileExt}`;
+    // ✅ Get current user FIRST (needed for file path + DB insert)
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
 
-      // Upload to Supabase Storage with progress tracking
-      await uploadFileWithProgress(fileName, selectedFile, abortController);
+    if (userErr) throw userErr;
+    if (!user) throw new Error("You must be logged in to upload videos");
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from("match-videos")
-        .getPublicUrl(fileName);
+    // ✅ Unique filename under user folder
+    const fileExt = selectedFile.name.split(".").pop();
+    const fileName = `${user.id}/${crypto.randomUUID()}.${fileExt}`;
 
-      const videoUrl = urlData.publicUrl;
+    // ✅ Upload to Supabase Storage with progress tracking
+    await uploadFileWithProgress(fileName, selectedFile, abortController);
 
-      // Get current user
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        throw new Error("You must be logged in to upload videos");
-      }
-
-      
-
-      // Insert match record into database
-      const { error: dbError } = await supabase.from("matches").insert({
+    // ✅ Insert match record into database (store video_path only)
+    const { data: inserted, error: dbError } = await supabase
+      .from("matches")
+      .insert({
         user_id: user.id,
         match_date: matchDate,
         opponent,
         team_name: teamName,
-        video_url: videoUrl,
         video_path: fileName,
-      });
+        // video_url: optional; recommended to omit if using signed URLs
+      })
+      .select("id")
+      .single();
 
-      if (dbError) throw dbError;
+    if (dbError) throw dbError;
+    if (!inserted?.id) throw new Error("Match created but no id returned.");
 
-      // Success - redirect to dashboard
-      setUploadStatus("success");
-      setTimeout(() => {
-        router.push("/dashboard");
-      }, 2000);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Upload failed.";
-      setErrorMessage(errMsg);
-      setUploadStatus("error");
-    } finally {
-      setIsUploading(false);
-      setUploadAbortController(null);
-    }
-  };
+    // ✅ Success - redirect to editor page to add highlight points
+    setUploadStatus("success");
+    setTimeout(() => {
+      router.push(`/match/${inserted.id}/set/1`);
+    }, 500);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Upload failed.";
+    setErrorMessage(errMsg);
+    setUploadStatus("error");
+  } finally {
+    setIsUploading(false);
+    setUploadAbortController(null);
+  }
+};
+
 
   const handleCancelUpload = () => {
     if (uploadAbortController) {

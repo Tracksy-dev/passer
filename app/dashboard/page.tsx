@@ -82,6 +82,11 @@ export default function DashboardPage() {
       if (error) throw error;
 
       setMatches(data || []);
+
+      // Redirect to upload page if no matches (demo cards are for demonstration only)
+      if (!data || data.length === 0) {
+        router.push("/upload");
+      }
     } catch (error) {
       console.error("Error fetching matches:", error);
     } finally {
