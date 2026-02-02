@@ -7,9 +7,10 @@ import { supabase } from "@/lib/supabase";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { Button } from "@/components/ui/button";
+import { HighlightReelPanel } from "@/components/highlight-reel-panel";
 import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player";
 
-import { ArrowLeft, AlertCircle, Trash2 } from "lucide-react";
+import { ArrowLeft, AlertCircle, Trash2, X } from "lucide-react";
 
 type HighlightAction =
   | "spike"
@@ -26,6 +27,14 @@ type HighlightPoint = {
   action: HighlightAction;
 };
 
+type ToastKind = "success" | "error";
+
+type ToastItem = {
+  id: string;
+  kind: ToastKind;
+  message: string;
+};
+
 const ACTIONS: HighlightAction[] = [
   "spike",
   "set",
@@ -36,7 +45,7 @@ const ACTIONS: HighlightAction[] = [
   "other",
 ];
 
-const MARK_OFFSET_SECONDS = 7;
+const MARK_OFFSET_SECONDS = 5;
 
 function formatTime(s: number) {
   const m = Math.floor(s / 60);
@@ -47,15 +56,12 @@ function formatTime(s: number) {
 export default function MatchHighlightsPage() {
   const params = useParams();
   const router = useRouter();
-
   const matchId = params.id as string;
+
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
-
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [operationError, setOperationError] = useState<string | null>(null);
 
   const [match, setMatch] = useState<{
     id: string;
@@ -68,11 +74,27 @@ export default function MatchHighlightsPage() {
   const [points, setPoints] = useState<HighlightPoint[]>([]);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
 
-  // Segmented control selection (used when you press Mark Highlight)
   const [selectedAction, setSelectedAction] =
     useState<HighlightAction>("spike");
-
   const [isMarking, setIsMarking] = useState(false);
+
+  // Toasts (bottom-right)
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const toast = {
+    push: (kind: ToastKind, message: string) => {
+      const id = crypto.randomUUID();
+      setToasts((prev) => [...prev, { id, kind, message }]);
+
+      // auto-dismiss
+      window.setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, kind === "error" ? 4500 : 2500);
+    },
+    dismiss: (id: string) => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    },
+  };
 
   const sortedPoints = useMemo(
     () => [...points].sort((a, b) => a.timestamp - b.timestamp),
@@ -85,7 +107,6 @@ export default function MatchHighlightsPage() {
         setIsLoading(true);
         setPageError(null);
 
-        // 1) Fetch match
         const { data: matchRow, error: matchErr } = await supabase
           .from("matches")
           .select("id, match_date, opponent, team_name, video_path, video_url")
@@ -95,7 +116,6 @@ export default function MatchHighlightsPage() {
         if (matchErr) throw matchErr;
         if (!matchRow) throw new Error("Match not found");
 
-        // 2) Get playable URL
         let playableUrl: string | null = matchRow.video_url ?? null;
 
         if (!playableUrl && matchRow.video_path) {
@@ -115,7 +135,6 @@ export default function MatchHighlightsPage() {
           videoUrl: playableUrl,
         });
 
-        // 3) Load highlights
         const { data: pts, error: ptsErr } = await supabase
           .from("match_points")
           .select("id, timestamp_seconds, label")
@@ -141,23 +160,13 @@ export default function MatchHighlightsPage() {
     load();
   }, [matchId]);
 
-  const showSuccess = (msg: string) => {
-    setSuccessMessage(msg);
-    setTimeout(() => setSuccessMessage(null), 2000);
-  };
-
-  const showOpError = (msg: string) => {
-    setOperationError(msg);
-    setTimeout(() => setOperationError(null), 4500);
-  };
-
   const handleMarkHighlight = async () => {
     if (isMarking) return;
 
     const now = playerRef.current?.getCurrentTime() ?? 0;
     const t = Math.max(0, now - MARK_OFFSET_SECONDS);
 
-    // UX: jump back so user sees the moment that was captured
+    // UX: jump back so the user sees what was captured
     playerRef.current?.seekTo(t);
 
     try {
@@ -193,10 +202,13 @@ export default function MatchHighlightsPage() {
       setPoints((prev) => [...prev, newPoint]);
       setSelectedPointId(newPoint.id);
 
-      showSuccess(`Saved: ${newPoint.action.toUpperCase()} @ ${formatTime(t)}`);
+      toast.push(
+        "success",
+        `Saved ${newPoint.action.toUpperCase()} @ ${formatTime(t)}`
+      );
     } catch (e) {
       console.error(e);
-      showOpError("Failed to mark highlight");
+      toast.push("error", "Failed to mark highlight");
     } finally {
       setIsMarking(false);
     }
@@ -215,10 +227,10 @@ export default function MatchHighlightsPage() {
       setPoints((prev) => prev.filter((p) => p.id !== id));
       if (selectedPointId === id) setSelectedPointId(null);
 
-      showSuccess("Highlight deleted");
+      toast.push("success", "Highlight deleted");
     } catch (e) {
       console.error(e);
-      showOpError("Failed to delete highlight");
+      toast.push("error", "Failed to delete highlight");
     }
   };
 
@@ -227,10 +239,12 @@ export default function MatchHighlightsPage() {
       <div className="min-h-screen flex flex-col">
         <SiteHeader showNav={true} activePage="dashboard" />
         <main className="flex-1 bg-gray-50 px-6 py-8">
-          <div className="max-w-5xl mx-auto space-y-6 animate-pulse">
+          <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
             <div className="h-8 bg-gray-200 rounded w-1/3" />
-            <div className="h-96 bg-gray-200 rounded" />
-            <div className="h-64 bg-gray-200 rounded" />
+            <div className="grid lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 h-96 bg-gray-200 rounded" />
+              <div className="h-96 bg-gray-200 rounded" />
+            </div>
           </div>
         </main>
         <SiteFooter />
@@ -273,25 +287,7 @@ export default function MatchHighlightsPage() {
       <SiteHeader showNav={true} activePage="dashboard" />
 
       <main className="flex-1 bg-gray-50 px-6 py-8">
-        <div className="max-w-5xl mx-auto space-y-6">
-          {/* Success / Error banners */}
-          {successMessage && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-green-800">
-                {successMessage}
-              </p>
-            </div>
-          )}
-
-          {operationError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-              <p className="text-sm font-medium text-red-800">
-                {operationError}
-              </p>
-            </div>
-          )}
-
+        <div className="max-w-6xl mx-auto space-y-6">
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -315,118 +311,157 @@ export default function MatchHighlightsPage() {
             </div>
           </div>
 
-          {/* Video + Controls */}
-          <div className="space-y-4">
-            <VideoPlayer ref={playerRef} title="Match Replay" src={match.videoUrl} />
+          {/* Layout: video left, highlights right */}
+          <div className="grid lg:grid-cols-3 gap-6 items-start">
+            {/* Video (2/3) */}
+            <div className="lg:col-span-2 space-y-4">
+              <VideoPlayer
+                ref={playerRef}
+                title="Match Replay"
+                src={match.videoUrl}
+              />
+            </div>
 
-            {/* Mark + segmented control */}
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+            {/* Highlights panel (1/3) */}
+            <div className="lg:sticky lg:top-6">
+              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col lg:h-[calc(100vh-10rem)]">
+                {/* Header */}
+                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">
+                    Highlights
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {sortedPoints.length} saved
+                  </span>
+                </div>
+
+                {/* Controls (non-scrolling) */}
+                <div className="p-4 border-b border-gray-200">
                   <Button
                     onClick={handleMarkHighlight}
                     disabled={isMarking}
-                    className="bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-60"
+                    className="w-full bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-60"
                   >
-                    {isMarking ? "Marking..." : `Mark Highlight`}
+                    {isMarking
+                      ? "Marking..."
+                      : `Mark Highlight (-${MARK_OFFSET_SECONDS}s)`}
                   </Button>
 
-                  <span className="text-xs text-gray-500">
-                    Uses current action selection
-                  </span>
-                </div>
-              </div>
-
-              {/* Segmented control */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {ACTIONS.map((action) => {
-                  const active = action === selectedAction;
-                  return (
-                    <button
-                      key={action}
-                      type="button"
-                      onClick={() => setSelectedAction(action)}
-                      className={`px-3 py-2 rounded-md border text-sm font-medium transition-colors ${
-                        active
-                          ? "bg-[#0047AB] text-white border-[#0047AB]"
-                          : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
-                      }`}
-                    >
-                      {action.toUpperCase()}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <p className="mt-3 text-xs text-gray-500">
-                Tip: Select an action, then click “Mark Highlight”. We’ll save a highlight
-                 ~{MARK_OFFSET_SECONDS} seconds earlier to account for reaction time.
-              </p>
-            </div>
-
-            {/* Timeline */}
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-900">
-                  Highlights
-                </span>
-                <span className="text-xs text-gray-500">
-                  {sortedPoints.length} saved
-                </span>
-              </div>
-
-              {sortedPoints.length === 0 ? (
-                <div className="p-4 text-sm text-gray-600">
-                  No highlights yet. Pick an action then press “Mark Highlight”.
-                </div>
-              ) : (
-                <ul className="divide-y divide-gray-200">
-                  {sortedPoints.map((p) => {
-                    const selected = p.id === selectedPointId;
-                    return (
-                      <li
-                        key={p.id}
-                        className={`px-4 py-3 flex items-center justify-between gap-3 ${
-                          selected ? "bg-blue-50" : "hover:bg-gray-50"
-                        }`}
-                      >
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {ACTIONS.map((action) => {
+                      const active = action === selectedAction;
+                      return (
                         <button
+                          key={action}
                           type="button"
-                          className="flex-1 text-left"
-                          onClick={() => handleSeek(p)}
+                          onClick={() => setSelectedAction(action)}
+                          className={`px-3 py-2 rounded-md border text-sm font-medium transition-colors ${
+                            active
+                              ? "bg-[#0047AB] text-white border-[#0047AB]"
+                              : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                          }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-gray-900">
-                              {p.action.toUpperCase()}
-                            </span>
-                            <span className="text-xs text-gray-600">
-                              {formatTime(p.timestamp)}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            Click to seek
-                          </p>
+                          {action.toUpperCase()}
                         </button>
+                      );
+                    })}
+                  </div>
 
-                        <Button
-                          variant="outline"
-                          className="border-gray-300"
-                          onClick={() => handleDelete(p.id)}
-                          aria-label="Delete highlight"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+                  <p className="mt-3 text-xs text-gray-500">
+                    Pick an action, then hit “Mark Highlight”. We save 5s earlier.
+                  </p>
+                </div>
+                <div className="p-4 border-b border-gray-200">
+                  <HighlightReelPanel matchId={matchId} />
+                </div>
+
+                {/* Scrollable list */}
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  {sortedPoints.length === 0 ? (
+                    <div className="p-4 text-sm text-gray-600">
+                      No highlights yet.
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-gray-200">
+                      {sortedPoints.map((p) => {
+                        const selected = p.id === selectedPointId;
+                        return (
+                          <li
+                            key={p.id}
+                            className={`px-4 py-3 flex items-start justify-between gap-3 ${
+                              selected ? "bg-blue-50" : "hover:bg-gray-50"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              className="flex-1 text-left"
+                              onClick={() => handleSeek(p)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-gray-900">
+                                  {p.action.toUpperCase()}
+                                </span>
+                                <span className="text-xs text-gray-600">
+                                  {formatTime(p.timestamp)}
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">
+                                Click to seek
+                              </p>
+                            </button>
+
+                            <Button
+                              variant="outline"
+                              className="border-gray-300"
+                              onClick={() => handleDelete(p.id)}
+                              aria-label="Delete highlight"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </main>
 
       <SiteFooter />
+
+      {/* Bottom-right toasts (fixed, does not shift layout) */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`w-[320px] rounded-lg border shadow-lg p-4 flex items-start gap-3 ${
+              t.kind === "success"
+                ? "bg-green-50 border-green-200"
+                : "bg-red-50 border-red-200"
+            }`}
+          >
+            <div className="flex-1">
+              <p
+                className={`text-sm font-medium ${
+                  t.kind === "success" ? "text-green-800" : "text-red-800"
+                }`}
+              >
+                {t.message}
+              </p>
+            </div>
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              className="text-gray-500 hover:text-gray-800"
+              aria-label="Dismiss toast"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
