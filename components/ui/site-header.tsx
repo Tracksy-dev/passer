@@ -1,7 +1,11 @@
+"use client";
+
 import { PasserLogo } from "./passer-logo";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { LogOut } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
 interface SiteHeaderProps {
   showNav?: boolean;
@@ -9,6 +13,13 @@ interface SiteHeaderProps {
 }
 
 export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.location.href = "/login";
+  };
+
   return (
     <header className="bg-[#0047AB] px-6 py-4">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -35,7 +46,7 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
               Dashboard
             </Link>
             <Link
-              href="/upload"
+              href="/upload-page"
               className={
                 activePage === "upload"
                   ? "text-[#F5A623] font-medium"
@@ -54,15 +65,14 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
             >
               Profile
             </Link>
-            <Link href="/login">
-              <Button
-                variant="outline"
-                className="bg-transparent border-[#F5A623] text-[#F5A623] hover:bg-[#F5A623]/10"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Button>
-            </Link>
+            <Button
+              variant="outline"
+              className="bg-transparent border-[#F5A623] text-[#F5A623] hover:bg-[#F5A623]/10"
+              onClick={handleLogout}
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </Button>
           </nav>
         )}
       </div>
