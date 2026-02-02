@@ -67,9 +67,16 @@ export default function DashboardPage() {
 
   const fetchMatches = useCallback(async () => {
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) return;
+
       const { data, error } = await supabase
         .from("matches")
         .select("*")
+        .eq("user_id", user.id)
         .order("match_date", { ascending: false });
 
       if (error) throw error;
@@ -85,7 +92,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     fetchMatches();
@@ -112,11 +119,21 @@ export default function DashboardPage() {
         // Continue with database deletion even if storage deletion fails
       }
 
-      // Delete match record from database
+      // Get current user for authorization check
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error("You must be logged in to delete matches");
+      }
+
+      // Delete match record from database (user_id check for defense-in-depth)
       const { error: dbError } = await supabase
         .from("matches")
         .delete()
-        .eq("id", matchToDelete.id);
+        .eq("id", matchToDelete.id)
+        .eq("user_id", user.id);
 
       if (dbError) throw dbError;
 

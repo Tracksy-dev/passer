@@ -11,10 +11,12 @@ import { SiteFooter } from "@/components/ui/site-footer";
 import { PasserIcon } from "@/components/ui/passer-icon";
 import { supabase } from "@/lib/supabase";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirectTo") || "/dashboard";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -34,8 +36,9 @@ export default function LoginPage() {
       if (error) throw error;
 
       if (data.user) {
-        // Login successful, redirect to dashboard
-        router.push("/dashboard");
+        // Login successful - use window.location for full page reload
+        // This ensures cookies are synced with the server/middleware
+        window.location.href = redirectTo;
       }
     } catch (err) {
       const error = err as Error;
