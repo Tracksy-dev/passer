@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { Button } from "@/components/ui/button";
+import { HighlightReelPanel } from "@/components/highlight-reel-panel";
 import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player";
 
 import { ArrowLeft, AlertCircle, Trash2, X } from "lucide-react";
@@ -323,7 +324,7 @@ export default function MatchHighlightsPage() {
 
             {/* Highlights panel (1/3) */}
             <div className="lg:sticky lg:top-6">
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col lg:h-[calc(100vh-24rem)]">
+              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col lg:h-[calc(100vh-10rem)]">
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-900">
@@ -369,6 +370,9 @@ export default function MatchHighlightsPage() {
                   <p className="mt-3 text-xs text-gray-500">
                     Pick an action, then hit “Mark Highlight”. We save 5s earlier.
                   </p>
+                </div>
+                <div className="p-4 border-b border-gray-200">
+                  <HighlightReelPanel matchId={matchId} />
                 </div>
 
                 {/* Scrollable list */}
