@@ -9,8 +9,13 @@ import { SiteFooter } from "@/components/ui/site-footer";
 import { Button } from "@/components/ui/button";
 import { HighlightReelPanel } from "@/components/highlight-reel-panel";
 import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player";
+import { PointTimeline } from "@/components/point-timeline";
+import { getSetData, type Point } from "@/lib/match-data";
 
 import { ArrowLeft, AlertCircle, Trash2, X } from "lucide-react";
+
+// Demo match IDs that use mock data
+const DEMO_MATCH_IDS = ["1", "2", "3"];
 
 type HighlightAction =
   | "spike"
@@ -57,6 +62,10 @@ export default function MatchHighlightsPage() {
   const params = useParams();
   const router = useRouter();
   const matchId = params.id as string;
+  const setNumber = parseInt(params.setNumber as string, 10) || 1;
+
+  // Check if this is a demo match
+  const isDemoMatch = DEMO_MATCH_IDS.includes(matchId);
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
@@ -71,8 +80,23 @@ export default function MatchHighlightsPage() {
     videoUrl: string | null;
   } | null>(null);
 
+  // Points for real matches (from Supabase)
   const [points, setPoints] = useState<HighlightPoint[]>([]);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
+
+  // Demo match data
+  const [demoSetData, setDemoSetData] = useState<{
+    setNumber: number;
+    homeScore: number;
+    awayScore: number;
+    winner: "home" | "away";
+    rallies: number;
+    points: Point[];
+  } | null>(null);
+  const [demoSets, setDemoSets] = useState<number[]>([]);
+  const [selectedDemoPointId, setSelectedDemoPointId] = useState<string | null>(
+    null,
+  );
 
   const [selectedAction, setSelectedAction] =
     useState<HighlightAction>("spike");
@@ -87,9 +111,12 @@ export default function MatchHighlightsPage() {
       setToasts((prev) => [...prev, { id, kind, message }]);
 
       // auto-dismiss
-      window.setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, kind === "error" ? 4500 : 2500);
+      window.setTimeout(
+        () => {
+          setToasts((prev) => prev.filter((t) => t.id !== id));
+        },
+        kind === "error" ? 4500 : 2500,
+      );
     },
     dismiss: (id: string) => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -98,7 +125,7 @@ export default function MatchHighlightsPage() {
 
   const sortedPoints = useMemo(
     () => [...points].sort((a, b) => a.timestamp - b.timestamp),
-    [points]
+    [points],
   );
 
   useEffect(() => {
@@ -107,6 +134,28 @@ export default function MatchHighlightsPage() {
         setIsLoading(true);
         setPageError(null);
 
+        // Handle demo matches differently
+        if (isDemoMatch) {
+          const result = getSetData(matchId, setNumber);
+          if (!result) {
+            throw new Error("Demo match not found");
+          }
+
+          setMatch({
+            id: result.match.id,
+            homeTeam: result.match.homeTeam,
+            awayTeam: result.match.awayTeam,
+            date: result.match.date,
+            videoUrl: null, // Demo matches don't have videos
+          });
+
+          setDemoSetData(result.set);
+          setDemoSets(result.match.sets.map((s) => s.setNumber));
+          setIsLoading(false);
+          return;
+        }
+
+        // Real match - fetch from Supabase
         const { data: matchRow, error: matchErr } = await supabase
           .from("matches")
           .select("id, match_date, opponent, team_name, video_path, video_url")
@@ -147,8 +196,9 @@ export default function MatchHighlightsPage() {
           (pts ?? []).map((p) => ({
             id: p.id,
             timestamp: Number(p.timestamp_seconds),
-            action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
-          }))
+            action: ((p.label as HighlightAction) ??
+              "other") as HighlightAction,
+          })),
         );
       } catch (e) {
         setPageError(e instanceof Error ? e.message : "Failed to load match.");
@@ -158,7 +208,7 @@ export default function MatchHighlightsPage() {
     };
 
     load();
-  }, [matchId]);
+  }, [matchId, setNumber, isDemoMatch]);
 
   const handleMarkHighlight = async () => {
     if (isMarking) return;
@@ -204,7 +254,7 @@ export default function MatchHighlightsPage() {
 
       toast.push(
         "success",
-        `Saved ${newPoint.action.toUpperCase()} @ ${formatTime(t)}`
+        `Saved ${newPoint.action.toUpperCase()} @ ${formatTime(t)}`,
       );
     } catch (e) {
       console.error(e);
@@ -221,7 +271,10 @@ export default function MatchHighlightsPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase.from("match_points").delete().eq("id", id);
+      const { error } = await supabase
+        .from("match_points")
+        .delete()
+        .eq("id", id);
       if (error) throw error;
 
       setPoints((prev) => prev.filter((p) => p.id !== id));
@@ -268,7 +321,10 @@ export default function MatchHighlightsPage() {
               There was a problem loading this match.
             </p>
             <div className="flex gap-3 justify-center">
-              <Button variant="outline" onClick={() => window.location.reload()}>
+              <Button
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
                 Try Again
               </Button>
               <Button onClick={() => router.push("/dashboard")}>
@@ -277,6 +333,114 @@ export default function MatchHighlightsPage() {
             </div>
           </div>
         </main>
+        <SiteFooter />
+      </div>
+    );
+  }
+
+  // Demo match view - show point-by-point breakdown
+  if (isDemoMatch && demoSetData) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <SiteHeader showNav={true} activePage="dashboard" />
+
+        <main className="flex-1 bg-gray-50 px-6 py-8">
+          <div className="max-w-6xl mx-auto space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="outline"
+                  onClick={() => router.push("/dashboard")}
+                  className="flex items-center gap-2"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Back to Dashboard
+                </Button>
+
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">
+                    {match.homeTeam} vs {match.awayTeam}
+                  </h1>
+                  <p className="text-sm text-gray-600">
+                    {new Date(match.date).toLocaleDateString()} • Demo Match
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Set Selector */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700">Set:</span>
+                <div className="flex gap-2">
+                  {demoSets.map((s) => (
+                    <Button
+                      key={s}
+                      variant={s === setNumber ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => router.push(`/match/${matchId}/set/${s}`)}
+                      className={
+                        s === setNumber ? "bg-[#0047AB] hover:bg-[#003580]" : ""
+                      }
+                    >
+                      Set {s}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Set Score Summary */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between">
+                <div className="text-center flex-1">
+                  <p className="text-sm text-gray-600 mb-1">{match.homeTeam}</p>
+                  <p
+                    className={`text-4xl font-bold ${demoSetData.winner === "home" ? "text-[#0047AB]" : "text-gray-900"}`}
+                  >
+                    {demoSetData.homeScore}
+                  </p>
+                </div>
+                <div className="text-center px-6">
+                  <p className="text-sm text-gray-400">Set {setNumber}</p>
+                  <p className="text-lg font-medium text-gray-600">vs</p>
+                </div>
+                <div className="text-center flex-1">
+                  <p className="text-sm text-gray-600 mb-1">{match.awayTeam}</p>
+                  <p
+                    className={`text-4xl font-bold ${demoSetData.winner === "away" ? "text-[#F5A623]" : "text-gray-900"}`}
+                  >
+                    {demoSetData.awayScore}
+                  </p>
+                </div>
+              </div>
+              <p className="text-center text-sm text-gray-500 mt-4">
+                {demoSetData.rallies} rallies • {demoSetData.points.length}{" "}
+                points tracked
+              </p>
+            </div>
+
+            {/* Point Timeline */}
+            <PointTimeline
+              points={demoSetData.points}
+              homeTeam={match.homeTeam}
+              awayTeam={match.awayTeam}
+              selectedPointId={selectedDemoPointId}
+              onPointClick={(point) => setSelectedDemoPointId(point.id)}
+            />
+
+            {/* Demo Notice */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                <strong>Demo Match:</strong> This is sample data to demonstrate
+                the point-by-point analysis feature. Upload your own match video
+                to see AI-generated analysis of your games.
+              </p>
+            </div>
+          </div>
+        </main>
+
         <SiteFooter />
       </div>
     );
@@ -368,7 +532,8 @@ export default function MatchHighlightsPage() {
                   </div>
 
                   <p className="mt-3 text-xs text-gray-500">
-                    Pick an action, then hit “Mark Highlight”. We save 5s earlier.
+                    Pick an action, then hit “Mark Highlight”. We save 5s
+                    earlier.
                   </p>
                 </div>
                 <div className="p-4 border-b border-gray-200">
