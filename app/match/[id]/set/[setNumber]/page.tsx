@@ -8,9 +8,10 @@ import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { Button } from "@/components/ui/button";
 import { HighlightReelPanel } from "@/components/highlight-reel-panel";
+import { ActionLegend } from "@/components/action-legend";
 import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player";
 import { PointTimeline } from "@/components/point-timeline";
-import { getSetData, type Point } from "@/lib/match-data";
+import { getSetData, type Point, actionTypeColors } from "@/lib/match-data";
 
 import { ArrowLeft, AlertCircle, Trash2, X } from "lucide-react";
 
@@ -123,6 +124,38 @@ export default function MatchHighlightsPage() {
     },
   };
 
+  // Hotkey handling: map number keys to actions (1..N) and 'm' to mark with current action
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      if (
+        active &&
+        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || (active as HTMLElement).isContentEditable)
+      )
+        return;
+
+      const k = e.key;
+      // number keys: 1..ACTIONS.length -> direct mark using that action
+      if (/^[1-9]$/.test(k)) {
+        const idx = Number(k) - 1;
+        if (idx >= 0 && idx < ACTIONS.length) {
+          e.preventDefault();
+          const action = ACTIONS[idx];
+          void markHighlight(action);
+        }
+        return;
+      }
+
+      if (k === "m" || k === " ") {
+        e.preventDefault();
+        void markHighlight();
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedAction, isMarking, points]);
+
   const sortedPoints = useMemo(
     () => [...points].sort((a, b) => a.timestamp - b.timestamp),
     [points],
@@ -210,13 +243,17 @@ export default function MatchHighlightsPage() {
     load();
   }, [matchId, setNumber, isDemoMatch]);
 
-  const handleMarkHighlight = async () => {
+  
+
+  const markHighlight = async (action?: HighlightAction) => {
     if (isMarking) return;
+    const prevAction = selectedAction;
+    if (action) setSelectedAction(action);
 
     const now = playerRef.current?.getCurrentTime() ?? 0;
     const t = Math.max(0, now - MARK_OFFSET_SECONDS);
 
-    // UX: jump back so the user sees what was captured
+    // Seek back so the user can see the captured moment
     playerRef.current?.seekTo(t);
 
     try {
@@ -236,7 +273,7 @@ export default function MatchHighlightsPage() {
           match_id: matchId,
           user_id: user.id,
           timestamp_seconds: t,
-          label: selectedAction,
+          label: action ?? prevAction,
         })
         .select("id, timestamp_seconds, label")
         .single();
@@ -249,12 +286,12 @@ export default function MatchHighlightsPage() {
         action: (inserted.label as HighlightAction) ?? "other",
       };
 
-      setPoints((prev) => [...prev, newPoint]);
+      setPoints((p) => [...p, newPoint]);
       setSelectedPointId(newPoint.id);
 
       toast.push(
         "success",
-        `Saved ${newPoint.action.toUpperCase()} @ ${formatTime(t)}`,
+        `Saved ${(newPoint.action as string).toUpperCase()} @ ${formatTime(t)}`,
       );
     } catch (e) {
       console.error(e);
@@ -484,6 +521,9 @@ export default function MatchHighlightsPage() {
                 title="Match Replay"
                 src={match.videoUrl}
               />
+              <div className="mt-4">
+                <HighlightReelPanel matchId={matchId} />
+              </div>
             </div>
 
             {/* Highlights panel (1/3) */}
@@ -502,7 +542,7 @@ export default function MatchHighlightsPage() {
                 {/* Controls (non-scrolling) */}
                 <div className="p-4 border-b border-gray-200">
                   <Button
-                    onClick={handleMarkHighlight}
+                    onClick={() => void markHighlight()}
                     disabled={isMarking}
                     className="w-full bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-60"
                   >
@@ -533,11 +573,18 @@ export default function MatchHighlightsPage() {
 
                   <p className="mt-3 text-xs text-gray-500">
                     Pick an action, then hit “Mark Highlight”. We save 5s
-                    earlier.
+                    earlier. You can also press number keys to capture directly.
                   </p>
-                </div>
-                <div className="p-4 border-b border-gray-200">
-                  <HighlightReelPanel matchId={matchId} />
+
+                  <div className="mt-3">
+                    <ActionLegend
+                      items={ACTIONS.map((a, i) => ({
+                        keyLabel: `${i + 1}`,
+                        label: a.toUpperCase(),
+                        color: (actionTypeColors as any)[a] ?? "#9CA3AF",
+                      }))}
+                    />
+                  </div>
                 </div>
 
                 {/* Scrollable list */}
@@ -597,7 +644,6 @@ export default function MatchHighlightsPage() {
 
       <SiteFooter />
 
-      {/* Bottom-right toasts (fixed, does not shift layout) */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
         {toasts.map((t) => (
           <div
