@@ -31,6 +31,8 @@ type HighlightPoint = {
   id: string;
   timestamp: number; // seconds
   action: HighlightAction;
+  clipBefore?: number; // seconds to include before the timestamp
+  clipAfter?: number; // seconds to include after the timestamp
 };
 
 type ToastKind = "success" | "error";
@@ -225,13 +227,27 @@ export default function MatchHighlightsPage() {
 
         if (ptsErr) throw ptsErr;
 
+        // load saved offsets from localStorage (per-match)
+        const storageKey = `match:${matchId}:pointOffsets`;
+        let savedOffsets: Record<string, { clipBefore?: number; clipAfter?: number }> = {};
+        try {
+          const raw = typeof window !== "undefined" ? localStorage.getItem(storageKey) : null;
+          if (raw) savedOffsets = JSON.parse(raw);
+        } catch (e) {
+          /* ignore */
+        }
+
         setPoints(
-          (pts ?? []).map((p) => ({
-            id: p.id,
-            timestamp: Number(p.timestamp_seconds),
-            action: ((p.label as HighlightAction) ??
-              "other") as HighlightAction,
-          })),
+          (pts ?? []).map((p) => {
+            const base: HighlightPoint = {
+              id: p.id,
+              timestamp: Number(p.timestamp_seconds),
+              action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
+              clipBefore: savedOffsets[p.id]?.clipBefore ?? MARK_OFFSET_SECONDS,
+              clipAfter: savedOffsets[p.id]?.clipAfter ?? MARK_OFFSET_SECONDS,
+            };
+            return base;
+          }),
         );
       } catch (e) {
         setPageError(e instanceof Error ? e.message : "Failed to load match.");
@@ -284,9 +300,21 @@ export default function MatchHighlightsPage() {
         id: inserted.id,
         timestamp: Number(inserted.timestamp_seconds),
         action: (inserted.label as HighlightAction) ?? "other",
+        clipBefore: MARK_OFFSET_SECONDS,
+        clipAfter: MARK_OFFSET_SECONDS,
       };
 
       setPoints((p) => [...p, newPoint]);
+      // persist default offsets for this new point
+      try {
+        const storageKey = `match:${matchId}:pointOffsets`;
+        const raw = localStorage.getItem(storageKey);
+        const map = raw ? JSON.parse(raw) : {};
+        map[newPoint.id] = { clipBefore: newPoint.clipBefore, clipAfter: newPoint.clipAfter };
+        localStorage.setItem(storageKey, JSON.stringify(map));
+      } catch (e) {
+        // ignore
+      }
       setSelectedPointId(newPoint.id);
 
       toast.push(
@@ -301,9 +329,27 @@ export default function MatchHighlightsPage() {
     }
   };
 
+  // Update clip offsets for a point and persist to localStorage
+  const updatePointOffset = (id: string, updates: { clipBefore?: number; clipAfter?: number }) => {
+    setPoints((prev) => {
+      const next = prev.map((p) => (p.id === id ? { ...p, ...updates } : p));
+      try {
+        const storageKey = `match:${matchId}:pointOffsets`;
+        const raw = localStorage.getItem(storageKey);
+        const map = raw ? JSON.parse(raw) : {};
+        map[id] = { ...(map[id] || {}), ...(updates as any) };
+        localStorage.setItem(storageKey, JSON.stringify(map));
+      } catch (e) {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   const handleSeek = (p: HighlightPoint) => {
     setSelectedPointId(p.id);
-    playerRef.current?.seekTo(p.timestamp);
+    const start = Math.max(0, p.timestamp - (p.clipBefore ?? MARK_OFFSET_SECONDS));
+    playerRef.current?.seekTo(start);
   };
 
   const handleDelete = async (id: string) => {
@@ -513,9 +559,9 @@ export default function MatchHighlightsPage() {
           </div>
 
           {/* Layout: video left, highlights right */}
-          <div className="grid lg:grid-cols-3 gap-6 items-start">
+          <div className="grid lg:grid-cols-5 gap-6 items-start">
             {/* Video (2/3) */}
-            <div className="lg:col-span-2 space-y-4">
+            <div className="lg:col-span-3 space-y-4">
               <VideoPlayer
                 ref={playerRef}
                 title="Match Replay"
@@ -527,7 +573,7 @@ export default function MatchHighlightsPage() {
             </div>
 
             {/* Highlights panel (1/3) */}
-            <div className="lg:sticky lg:top-6">
+            <div className="lg:col-span-2 lg:sticky lg:top-6">
               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col lg:h-[calc(100vh-10rem)]">
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
@@ -621,6 +667,46 @@ export default function MatchHighlightsPage() {
                                 Click to seek
                               </p>
                             </button>
+
+                            <div className="ml-3 flex flex-col items-end gap-2">
+                              <div className="flex items-center gap-2 text-xs text-gray-600">
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    aria-label="decrease start"
+                                    onClick={() => updatePointOffset(p.id, { clipBefore: Math.max(0, (p.clipBefore ?? MARK_OFFSET_SECONDS) - 1) })}
+                                    className="px-2 py-1 bg-gray-100 rounded border"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="px-2">Start: -{p.clipBefore ?? MARK_OFFSET_SECONDS}s</span>
+                                  <button
+                                    aria-label="increase start"
+                                    onClick={() => updatePointOffset(p.id, { clipBefore: (p.clipBefore ?? MARK_OFFSET_SECONDS) + 1 })}
+                                    className="px-2 py-1 bg-gray-100 rounded border"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    aria-label="decrease end"
+                                    onClick={() => updatePointOffset(p.id, { clipAfter: Math.max(0, (p.clipAfter ?? MARK_OFFSET_SECONDS) - 1) })}
+                                    className="px-2 py-1 bg-gray-100 rounded border"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="px-2">End: +{p.clipAfter ?? MARK_OFFSET_SECONDS}s</span>
+                                  <button
+                                    aria-label="increase end"
+                                    onClick={() => updatePointOffset(p.id, { clipAfter: (p.clipAfter ?? MARK_OFFSET_SECONDS) + 1 })}
+                                    className="px-2 py-1 bg-gray-100 rounded border"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
 
                             <Button
                               variant="outline"
