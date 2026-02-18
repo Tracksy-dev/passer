@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2, Eye, EyeOff } from "lucide-react";
 
 type ReelJobStatus = "queued" | "processing" | "complete" | "failed";
 
@@ -19,6 +19,7 @@ type ReelJobRow = {
   error: string | null;
   created_at: string;
   title?: string | null;
+  is_public: boolean;
 };
 
 function formatDate(iso: string) {
@@ -32,18 +33,19 @@ export function HighlightReelPanel({ matchId }: { matchId: string }) {
 
   const [isStarting, setIsStarting] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [isTogglingId, setIsTogglingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selected = useMemo(
     () => reels.find((r) => r.id === selectedReelId) ?? null,
-    [reels, selectedReelId]
+    [reels, selectedReelId],
   );
 
   const loadReels = async () => {
     const { data, error } = await supabase
       .from("reel_jobs")
       .select(
-        "id, match_id, user_id, status, clip_before, clip_after, output_path, output_url, error, created_at, title"
+        "id, match_id, user_id, status, clip_before, clip_after, output_path, output_url, error, created_at, title, is_public",
       )
       .eq("match_id", matchId)
       .order("created_at", { ascending: false });
@@ -71,7 +73,7 @@ export function HighlightReelPanel({ matchId }: { matchId: string }) {
   // Poll any queued/processing reels
   useEffect(() => {
     const hasActive = reels.some(
-      (r) => r.status === "queued" || r.status === "processing"
+      (r) => r.status === "queued" || r.status === "processing",
     );
     if (!hasActive) return;
 
@@ -166,10 +168,38 @@ export function HighlightReelPanel({ matchId }: { matchId: string }) {
     }
   };
 
+  const togglePrivacy = async (reelJobId: string, currentlyPublic: boolean) => {
+    try {
+      setIsTogglingId(reelJobId);
+      setError(null);
+
+      const { error: updateErr } = await supabase
+        .from("reel_jobs")
+        .update({ is_public: !currentlyPublic })
+        .eq("id", reelJobId);
+
+      if (updateErr) throw updateErr;
+
+      // Update local state immediately
+      setReels((prev) =>
+        prev.map((r) =>
+          r.id === reelJobId ? { ...r, is_public: !currentlyPublic } : r,
+        ),
+      );
+    } catch (e) {
+      console.error(e);
+      setError(e instanceof Error ? e.message : "Failed to update privacy");
+    } finally {
+      setIsTogglingId(null);
+    }
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-900">Highlight Reels</span>
+        <span className="text-sm font-medium text-gray-900">
+          Highlight Reels
+        </span>
         <Button
           onClick={startNewReel}
           disabled={isStarting}
@@ -221,6 +251,7 @@ export function HighlightReelPanel({ matchId }: { matchId: string }) {
                 isDeletingId === r.id ||
                 r.status === "queued" ||
                 r.status === "processing";
+              const isCompleted = r.status === "complete";
 
               return (
                 <li
@@ -242,29 +273,83 @@ export function HighlightReelPanel({ matchId }: { matchId: string }) {
                         {formatDate(r.created_at)}
                       </span>
                     </div>
-                    <div className="mt-1 text-xs text-gray-600">
-                      Status:{" "}
-                      <span className="font-medium">
-                        {r.status.toUpperCase()}
+                    <div className="mt-1 flex items-center gap-2 text-xs text-gray-600">
+                      <span>
+                        Status:{" "}
+                        <span className="font-medium">
+                          {r.status.toUpperCase()}
+                        </span>
                       </span>
+                      {isCompleted && (
+                        <span
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                            r.is_public
+                              ? "bg-green-100 text-green-700"
+                              : "bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          {r.is_public ? (
+                            <>
+                              <Eye className="w-3 h-3" /> Public
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="w-3 h-3" /> Private
+                            </>
+                          )}
+                        </span>
+                      )}
                     </div>
                     {r.status === "failed" && r.error && (
                       <div className="mt-1 text-xs text-red-700">{r.error}</div>
                     )}
                   </button>
 
-                  <Button
-                    variant="outline"
-                    className="border-gray-300"
-                    disabled={disableDelete}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteReel(r.id);
-                    }}
-                    aria-label="Delete reel"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    {isCompleted && (
+                      <Button
+                        variant="outline"
+                        className={`border-gray-300 ${
+                          r.is_public
+                            ? "text-green-600 hover:text-green-700"
+                            : "text-gray-500 hover:text-gray-700"
+                        }`}
+                        disabled={isTogglingId === r.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePrivacy(r.id, r.is_public);
+                        }}
+                        aria-label={
+                          r.is_public ? "Make private" : "Make public"
+                        }
+                        title={
+                          r.is_public
+                            ? "Public — visible to everyone. Click to make private."
+                            : "Private — only you can see this. Click to make public."
+                        }
+                      >
+                        {isTogglingId === r.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : r.is_public ? (
+                          <Eye className="w-4 h-4" />
+                        ) : (
+                          <EyeOff className="w-4 h-4" />
+                        )}
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      className="border-gray-300"
+                      disabled={disableDelete}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteReel(r.id);
+                      }}
+                      aria-label="Delete reel"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </li>
               );
             })}

@@ -10,7 +10,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import * as Dialog from "@radix-ui/react-dialog";
 import Image from "next/image";
-import { Settings, X, CheckCircle2 } from "lucide-react";
+import {
+  Settings,
+  X,
+  CheckCircle2,
+  Grid3X3,
+  Film,
+  Play,
+  Eye,
+  EyeOff,
+  Loader2,
+} from "lucide-react";
+
+type ReelItem = {
+  id: string;
+  title: string | null;
+  output_url: string | null;
+  created_at: string;
+  is_public: boolean;
+};
 
 const VOLLEYBALL_POSITIONS = [
   "Setter",
@@ -53,7 +71,33 @@ export default function ProfilePage() {
   const [editTeam, setEditTeam] = useState<string>("");
   const [editPosition, setEditPosition] = useState<string>("");
 
-  const [highlightsCount, setHighlightsCount] = useState(0);
+  const [reelsCount, setReelsCount] = useState(0);
+  const [reels, setReels] = useState<ReelItem[]>([]);
+  const [selectedReel, setSelectedReel] = useState<ReelItem | null>(null);
+  const [togglingReelId, setTogglingReelId] = useState<string | null>(null);
+
+  const toggleReelPrivacy = async (
+    reelId: string,
+    currentlyPublic: boolean,
+  ) => {
+    try {
+      setTogglingReelId(reelId);
+      const { error } = await supabase
+        .from("reel_jobs")
+        .update({ is_public: !currentlyPublic })
+        .eq("id", reelId);
+      if (error) throw error;
+      setReels((prev) =>
+        prev.map((r) =>
+          r.id === reelId ? { ...r, is_public: !currentlyPublic } : r,
+        ),
+      );
+    } catch (e) {
+      console.error("Failed to toggle privacy:", e);
+    } finally {
+      setTogglingReelId(null);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -88,13 +132,18 @@ export default function ProfilePage() {
         });
       }
 
-      // Load highlights count
-      const { count: hlCount } = await supabase
-        .from("highlights")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", u.id);
+      // Load completed reels
+      const { data: reelData, count: reelCount } = await supabase
+        .from("reel_jobs")
+        .select("id, title, output_url, created_at, is_public", {
+          count: "exact",
+        })
+        .eq("user_id", u.id)
+        .eq("status", "complete")
+        .order("created_at", { ascending: false });
 
-      setHighlightsCount(hlCount ?? 0);
+      setReels(reelData ?? []);
+      setReelsCount(reelCount ?? reelData?.length ?? 0);
 
       setLoading(false);
     };
@@ -259,9 +308,9 @@ export default function ProfilePage() {
               <div className="flex items-center gap-8 mt-5">
                 <div className="flex items-center gap-1">
                   <span className="font-semibold text-gray-900">
-                    {highlightsCount}
+                    {reelsCount}
                   </span>
-                  <span className="text-gray-600">highlights</span>
+                  <span className="text-gray-600">reels</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="font-semibold text-gray-900">0</span>
@@ -298,8 +347,142 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <div className="border-t border-gray-200 max-w-4xl mx-auto" />
+        {/* ─── Tab bar ─── */}
+        <div className="border-t border-gray-200 max-w-4xl mx-auto">
+          <div className="flex items-center justify-center">
+            <button className="flex items-center gap-1.5 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-900 border-t border-gray-900 -mt-px">
+              <Grid3X3 className="w-3.5 h-3.5" />
+              Reels
+            </button>
+          </div>
+        </div>
+
+        {/* ─── Reels Grid ─── */}
+        <div className="max-w-4xl mx-auto px-6 pb-12">
+          {reels.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="w-20 h-20 rounded-full border-2 border-gray-300 flex items-center justify-center mb-4">
+                <Film className="w-10 h-10 text-gray-300" />
+              </div>
+              <h3 className="text-2xl font-semibold text-gray-900 mb-2">
+                No reels yet
+              </h3>
+              <p className="text-sm text-gray-500 max-w-xs">
+                Upload a match and generate a highlight reel to see it here.
+              </p>
+              <Button
+                onClick={() => router.push("/upload-page")}
+                className="mt-6 bg-[#0047AB] hover:bg-[#003580] text-white"
+              >
+                Upload a match
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-1 mt-1">
+              {reels.map((reel) => (
+                <div
+                  key={reel.id}
+                  className="aspect-square bg-gray-100 relative group cursor-pointer overflow-hidden"
+                  onClick={() => setSelectedReel(reel)}
+                >
+                  {reel.output_url ? (
+                    <video
+                      src={reel.output_url}
+                      className="w-full h-full object-cover"
+                      muted
+                      preload="metadata"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Film className="w-8 h-8 text-gray-400" />
+                    </div>
+                  )}
+                  {/* Privacy toggle */}
+                  <button
+                    className="absolute top-2 left-2 z-10 p-1 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
+                    title={
+                      reel.is_public
+                        ? "Public — click to make private"
+                        : "Private — click to make public"
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleReelPrivacy(reel.id, reel.is_public);
+                    }}
+                    disabled={togglingReelId === reel.id}
+                  >
+                    {togglingReelId === reel.id ? (
+                      <Loader2 className="w-4 h-4 text-white animate-spin" />
+                    ) : reel.is_public ? (
+                      <Eye className="w-4 h-4 text-white" />
+                    ) : (
+                      <EyeOff className="w-4 h-4 text-white" />
+                    )}
+                  </button>
+                  {/* Play icon */}
+                  <div className="absolute top-2 right-2">
+                    <Play className="w-4 h-4 text-white drop-shadow-md fill-white" />
+                  </div>
+                  {/* Hover overlay */}
+                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="text-white text-sm font-medium px-2 text-center truncate">
+                      {reel.title || "Highlight Reel"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </main>
+
+      {/* ─── Reel Player Dialog ─── */}
+      <Dialog.Root
+        open={!!selectedReel}
+        onOpenChange={(open) => {
+          if (!open) setSelectedReel(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/80 z-50" />
+          <Dialog.Content className="fixed z-50 left-1/2 top-1/2 w-[92vw] max-w-3xl -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-black shadow-2xl overflow-hidden">
+            <Dialog.Title className="sr-only">
+              {selectedReel?.title || "Highlight Reel"}
+            </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Playing highlight reel video
+            </Dialog.Description>
+            <Dialog.Close asChild>
+              <button
+                type="button"
+                className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </Dialog.Close>
+            {selectedReel?.output_url && (
+              <video
+                key={selectedReel.id}
+                src={selectedReel.output_url}
+                controls
+                autoPlay
+                className="w-full max-h-[80vh]"
+              />
+            )}
+            <div className="px-4 py-3 bg-gray-900">
+              <p className="text-white text-sm font-medium">
+                {selectedReel?.title || "Highlight Reel"}
+              </p>
+              {selectedReel?.created_at && (
+                <p className="text-gray-400 text-xs mt-0.5">
+                  {new Date(selectedReel.created_at).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {/* ─── Edit Profile Dialog ─── */}
       <Dialog.Root
