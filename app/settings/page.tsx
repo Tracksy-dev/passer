@@ -17,6 +17,9 @@ import {
   Circle,
   KeyRound,
   Settings,
+  Globe,
+  Lock,
+  Loader2,
 } from "lucide-react";
 
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5MB
@@ -26,6 +29,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+  const [isPrivacyConfirmOpen, setIsPrivacyConfirmOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [savingPhoto, setSavingPhoto] = useState(false);
@@ -37,6 +41,12 @@ export default function SettingsPage() {
   const [user, setUser] = useState<any>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  // Profile visibility state
+  const [isProfilePublic, setIsProfilePublic] = useState(false);
+  const [savingVisibility, setSavingVisibility] = useState(false);
+  const [visibilitySuccess, setVisibilitySuccess] = useState(false);
+  const [publicReelsCount, setPublicReelsCount] = useState(0);
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -75,6 +85,17 @@ export default function SettingsPage() {
       }
       setUser(u);
       setAvatarUrl(u.user_metadata?.avatar_url ?? "");
+
+      // Load profile visibility
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("is_public")
+        .eq("id", u.id)
+        .single();
+      if (profileData) {
+        setIsProfilePublic(profileData.is_public ?? false);
+      }
+
       setLoading(false);
     };
     load();
@@ -161,6 +182,46 @@ export default function SettingsPage() {
       return false;
     } finally {
       setSavingPhoto(false);
+    }
+  };
+
+  const handleToggleVisibility = async (makePublic: boolean) => {
+    // If switching to private, check for public reels first
+    if (!makePublic && isProfilePublic) {
+      const { count } = await supabase
+        .from("reel_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("status", "complete")
+        .eq("is_public", true);
+      const pubCount = count ?? 0;
+      setPublicReelsCount(pubCount);
+      if (pubCount > 0) {
+        setIsPrivacyConfirmOpen(true);
+        return;
+      }
+    }
+    await saveVisibility(makePublic);
+  };
+
+  const saveVisibility = async (makePublic: boolean) => {
+    setSavingVisibility(true);
+    setVisibilitySuccess(false);
+    try {
+      const { error: updateErr } = await supabase
+        .from("profiles")
+        .update({ is_public: makePublic })
+        .eq("id", user.id);
+      if (updateErr) throw updateErr;
+      setIsProfilePublic(makePublic);
+      setVisibilitySuccess(true);
+      setTimeout(() => setVisibilitySuccess(false), 2500);
+    } catch (e) {
+      console.error(e);
+      setError("Failed to update profile visibility.");
+    } finally {
+      setSavingVisibility(false);
+      setIsPrivacyConfirmOpen(false);
     }
   };
 
@@ -332,6 +393,69 @@ export default function SettingsPage() {
                       <KeyRound className="w-4 h-4 mr-2" />
                       Change password
                     </Button>
+                  </div>
+                </div>
+
+                {/* Profile Visibility Section */}
+                <div className="border-t border-gray-200 pt-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900">
+                          Profile visibility
+                        </p>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                            isProfilePublic
+                              ? "bg-green-100 text-green-700"
+                              : "bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          {isProfilePublic ? (
+                            <>
+                              <Globe className="w-3 h-3" /> Public
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-3 h-3" /> Private
+                            </>
+                          )}
+                        </span>
+                        {visibilitySuccess && (
+                          <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium animate-in fade-in">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Saved
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {isProfilePublic
+                          ? "Anyone with your link can view your profile and public reels."
+                          : "Only you can see your profile. Other users cannot find or view it."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isProfilePublic}
+                      disabled={savingVisibility}
+                      onClick={() => handleToggleVisibility(!isProfilePublic)}
+                      className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                        savingVisibility ? "opacity-50 cursor-not-allowed" : ""
+                      } ${isProfilePublic ? "bg-[#0047AB]" : "bg-gray-300"}`}
+                    >
+                      <span className="sr-only">Toggle profile visibility</span>
+                      {savingVisibility ? (
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <Loader2 className="w-4 h-4 text-white animate-spin" />
+                        </span>
+                      ) : (
+                        <span
+                          className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            isProfilePublic ? "translate-x-5" : "translate-x-0"
+                          }`}
+                        />
+                      )}
+                    </button>
                   </div>
                 </div>
 
@@ -680,6 +804,57 @@ export default function SettingsPage() {
       </Dialog.Root>
 
       <SiteFooter />
+
+      {/* Privacy Confirmation Dialog */}
+      <Dialog.Root
+        open={isPrivacyConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setIsPrivacyConfirmOpen(false);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-50" />
+          <Dialog.Content className="fixed z-50 left-1/2 top-1/2 w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-lg border border-gray-200 p-6">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <Lock className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <Dialog.Title className="text-lg font-semibold text-gray-900">
+                  Make profile private?
+                </Dialog.Title>
+                <Dialog.Description className="text-sm text-gray-600 mt-1">
+                  You have{" "}
+                  <span className="font-semibold">{publicReelsCount}</span>{" "}
+                  public {publicReelsCount === 1 ? "reel" : "reels"}. Making
+                  your profile private will hide your profile and all reels from
+                  other users. Your individual reel settings will be preserved
+                  so they're ready when you go public again.
+                </Dialog.Description>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                onClick={() => setIsPrivacyConfirmOpen(false)}
+                disabled={savingVisibility}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={() => saveVisibility(false)}
+                disabled={savingVisibility}
+              >
+                {savingVisibility ? "Saving..." : "Make private"}
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
