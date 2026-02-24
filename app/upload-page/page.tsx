@@ -16,8 +16,6 @@ const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 const ALLOWED_FORMATS = [".mp4", ".mov", ".avi"];
 const ALLOWED_MIME_TYPES = ["video/mp4", "video/quicktime", "video/x-msvideo"];
 
-
-
 export default function UploadPage() {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -33,7 +31,6 @@ export default function UploadPage() {
   const [teamName, setTeamName] = useState("DkIT VC");
   const [uploadAbortController, setUploadAbortController] =
     useState<AbortController | null>(null);
-
 
   useEffect(() => {
     const checkUser = async () => {
@@ -57,7 +54,7 @@ export default function UploadPage() {
 
     if (!isValidFormat) {
       return `Invalid file format. Please upload a video file (${ALLOWED_FORMATS.join(
-        ", "
+        ", ",
       )})`;
     }
 
@@ -85,153 +82,154 @@ export default function UploadPage() {
 
   const SIGNED_UPLOAD_MAX = 500 * 1024 * 1024; // 50MB (safe cutoff)
 
-const uploadFileWithProgress = async (
-  fileName: string,
-  file: File,
-  abortController: AbortController
-): Promise<void> => {
-  // If file is large, skip signed-upload route (it’s the one failing)
-  if (file.size > SIGNED_UPLOAD_MAX) {
-    const { error } = await supabase.storage
+  const uploadFileWithProgress = async (
+    fileName: string,
+    file: File,
+    abortController: AbortController,
+  ): Promise<void> => {
+    // If file is large, skip signed-upload route (it’s the one failing)
+    if (file.size > SIGNED_UPLOAD_MAX) {
+      const { error } = await supabase.storage
+        .from("match-videos")
+        .upload(fileName, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type,
+        });
+
+      if (error) throw error;
+      setUploadProgress(100);
+      return;
+    }
+
+    // Otherwise try signed upload (keep your progress)
+    const { data: uploadData, error: urlError } = await supabase.storage
       .from("match-videos")
-      .upload(fileName, file, {
-        cacheControl: "3600",
-        upsert: false,
+      .createSignedUploadUrl(fileName, {
         contentType: file.type,
+        upsert: false,
       });
 
-    if (error) throw error;
-    setUploadProgress(100);
-    return;
-  }
+    if (urlError || !uploadData) {
+      // fallback
+      const { error } = await supabase.storage
+        .from("match-videos")
+        .upload(fileName, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type,
+        });
+      if (error) throw error;
+      setUploadProgress(100);
+      return;
+    }
 
-  // Otherwise try signed upload (keep your progress)
-  const { data: uploadData, error: urlError } = await supabase.storage
-    .from("match-videos")
-    .createSignedUploadUrl(fileName, {
-      contentType: file.type,
-      upsert: false,
-    });
+    // XHR for progress
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
 
-  if (urlError || !uploadData) {
-    // fallback
-    const { error } = await supabase.storage
-      .from("match-videos")
-      .upload(fileName, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type,
+      abortController.signal.addEventListener("abort", () => {
+        xhr.abort();
+        reject(new Error("Upload cancelled by user"));
       });
-    if (error) throw error;
+
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      });
+
+      xhr.addEventListener("load", () => {
+        if (xhr.status === 200 || xhr.status === 201) return resolve();
+        // log real error body
+        console.error("Signed upload failed:", xhr.status, xhr.responseText);
+        reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+      });
+
+      xhr.addEventListener("error", () => reject(new Error("Upload failed")));
+      xhr.addEventListener("abort", () =>
+        reject(new Error("Upload cancelled")),
+      );
+
+      xhr.open("PUT", uploadData.signedUrl);
+      xhr.setRequestHeader("Content-Type", file.type);
+      xhr.send(file);
+    });
+
     setUploadProgress(100);
-    return;
-  }
-
-  // XHR for progress
-  await new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-
-    abortController.signal.addEventListener("abort", () => {
-      xhr.abort();
-      reject(new Error("Upload cancelled by user"));
-    });
-
-    xhr.upload.addEventListener("progress", (e) => {
-      if (e.lengthComputable) {
-        setUploadProgress(Math.round((e.loaded / e.total) * 100));
-      }
-    });
-
-    xhr.addEventListener("load", () => {
-      if (xhr.status === 200 || xhr.status === 201) return resolve();
-      // log real error body
-      console.error("Signed upload failed:", xhr.status, xhr.responseText);
-      reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
-    });
-
-    xhr.addEventListener("error", () => reject(new Error("Upload failed")));
-    xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
-
-    xhr.open("PUT", uploadData.signedUrl);
-    xhr.setRequestHeader("Content-Type", file.type);
-    xhr.send(file);
-  });
-
-  setUploadProgress(100);
-};
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setErrorMessage("");
+    e.preventDefault();
+    setErrorMessage("");
 
-  if (!selectedFile) {
-    setErrorMessage("Please select a video file to upload");
-    setUploadStatus("error");
-    return;
-  }
+    if (!selectedFile) {
+      setErrorMessage("Please select a video file to upload");
+      setUploadStatus("error");
+      return;
+    }
 
-  if (!matchDate || !opponent || !teamName) {
-    setErrorMessage("Please fill in all required fields");
-    setUploadStatus("error");
-    return;
-  }
+    if (!matchDate || !opponent || !teamName) {
+      setErrorMessage("Please fill in all required fields");
+      setUploadStatus("error");
+      return;
+    }
 
-  const abortController = new AbortController();
-  setUploadAbortController(abortController);
+    const abortController = new AbortController();
+    setUploadAbortController(abortController);
 
-  try {
-    setIsUploading(true);
-    setUploadStatus("idle");
-    setUploadProgress(0);
+    try {
+      setIsUploading(true);
+      setUploadStatus("idle");
+      setUploadProgress(0);
 
-    // ✅ Get current user FIRST (needed for file path + DB insert)
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabase.auth.getUser();
+      // ✅ Get current user FIRST (needed for file path + DB insert)
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
 
-    if (userErr) throw userErr;
-    if (!user) throw new Error("You must be logged in to upload videos");
+      if (userErr) throw userErr;
+      if (!user) throw new Error("You must be logged in to upload videos");
 
-    // ✅ Unique filename under user folder
-    const fileExt = selectedFile.name.split(".").pop();
-    const fileName = `${user.id}/${crypto.randomUUID()}.${fileExt}`;
+      // ✅ Unique filename under user folder
+      const fileExt = selectedFile.name.split(".").pop();
+      const fileName = `${user.id}/${crypto.randomUUID()}.${fileExt}`;
 
-    // ✅ Upload to Supabase Storage with progress tracking
-    await uploadFileWithProgress(fileName, selectedFile, abortController);
+      // ✅ Upload to Supabase Storage with progress tracking
+      await uploadFileWithProgress(fileName, selectedFile, abortController);
 
-    // ✅ Insert match record into database (store video_path only)
-    const { data: inserted, error: dbError } = await supabase
-      .from("matches")
-      .insert({
-        user_id: user.id,
-        match_date: matchDate,
-        opponent,
-        team_name: teamName,
-        video_path: fileName,
-        // video_url: optional; recommended to omit if using signed URLs
-      })
-      .select("id")
-      .single();
+      // ✅ Insert match record into database (store video_path only)
+      const { data: inserted, error: dbError } = await supabase
+        .from("matches")
+        .insert({
+          user_id: user.id,
+          match_date: matchDate,
+          opponent,
+          team_name: teamName,
+          video_path: fileName,
+          // video_url: optional; recommended to omit if using signed URLs
+        })
+        .select("id")
+        .single();
 
-    if (dbError) throw dbError;
-    if (!inserted?.id) throw new Error("Match created but no id returned.");
+      if (dbError) throw dbError;
+      if (!inserted?.id) throw new Error("Match created but no id returned.");
 
-    // ✅ Success - redirect to editor page to add highlight points
-    setUploadStatus("success");
-    setTimeout(() => {
-      router.push(`/match/${inserted.id}/set/1`);
-    }, 500);
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "Upload failed.";
-    setErrorMessage(errMsg);
-    setUploadStatus("error");
-  } finally {
-    setIsUploading(false);
-    setUploadAbortController(null);
-  }
-};
-
+      // ✅ Success - redirect to editor page to add highlight points
+      setUploadStatus("success");
+      setTimeout(() => {
+        router.push(`/match/${inserted.id}/set/1`);
+      }, 500);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Upload failed.";
+      setErrorMessage(errMsg);
+      setUploadStatus("error");
+    } finally {
+      setIsUploading(false);
+      setUploadAbortController(null);
+    }
+  };
 
   const handleCancelUpload = () => {
     if (uploadAbortController) {
@@ -247,7 +245,7 @@ const uploadFileWithProgress = async (
     setErrorMessage("");
     // Reset file input
     const fileInput = document.getElementById(
-      "file-upload"
+      "file-upload",
     ) as HTMLInputElement;
     if (fileInput) {
       fileInput.value = "";
@@ -288,11 +286,9 @@ const uploadFileWithProgress = async (
     }
   };
 
-  
-
   return (
     <div className="min-h-screen flex flex-col">
-      <SiteHeader showNav={true} />
+      <SiteHeader showNav={true} activePage="upload" />
 
       <main className="flex-1 bg-gray-50 px-6 py-12">
         <div className="max-w-4xl mx-auto space-y-8">

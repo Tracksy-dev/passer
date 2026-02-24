@@ -166,7 +166,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <SiteHeader showNav={true} />
+      <SiteHeader showNav={true} activePage="dashboard" />
 
       {/* Main Content */}
       <main className="flex-1 bg-gray-50 px-6 py-8">

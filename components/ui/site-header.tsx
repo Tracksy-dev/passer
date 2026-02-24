@@ -3,13 +3,13 @@
 import { PasserLogo } from "./passer-logo";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { Compass, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
 interface SiteHeaderProps {
   showNav?: boolean;
-  activePage?: "dashboard" | "upload" | "profile";
+  activePage?: "dashboard" | "upload" | "profile" | "explore";
 }
 
 export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
@@ -44,6 +44,19 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
               }
             >
               Dashboard
+            </Link>
+            <Link
+              href="/explore"
+              className={
+                activePage === "explore"
+                  ? "text-[#F5A623] font-medium"
+                  : "text-white hover:text-gray-200"
+              }
+            >
+              <span className="flex items-center gap-1.5">
+                <Compass className="w-4 h-4" />
+                Explore
+              </span>
             </Link>
             <Link
               href="/upload-page"
