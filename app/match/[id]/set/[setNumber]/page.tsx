@@ -116,6 +116,10 @@ export default function MatchHighlightsPage() {
   // We need a ref for the active clip so the timeupdate callback can read it without stale closures
   const activeClipRef = useRef<{ id: string; start: number; end: number } | null>(null);
 
+  // Track the most recently inserted point for undo
+  const lastInsertedIdRef = useRef<string | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+
   // Toasts (bottom-right)
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -162,6 +166,13 @@ export default function MatchHighlightsPage() {
       if (k === "m" || k === " ") {
         e.preventDefault();
         void markHighlight();
+        return;
+      }
+
+      // Ctrl/Cmd+Z → undo last point
+      if (k === "z" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void handleUndo();
       }
     };
 
@@ -307,6 +318,8 @@ export default function MatchHighlightsPage() {
 
       setPoints((p) => [...p, newPoint]);
       setSelectedPointId(newPoint.id);
+      lastInsertedIdRef.current = newPoint.id;
+      setCanUndo(true);
 
       toast.push(
         "success",
@@ -391,12 +404,23 @@ export default function MatchHighlightsPage() {
 
       setPoints((prev) => prev.filter((p) => p.id !== id));
       if (selectedPointId === id) setSelectedPointId(null);
+      if (lastInsertedIdRef.current === id) {
+        lastInsertedIdRef.current = null;
+        setCanUndo(false);
+      }
 
       toast.push("success", "Highlight deleted");
     } catch (e) {
       console.error(e);
       toast.push("error", "Failed to delete highlight");
     }
+  };
+
+  const handleUndo = async () => {
+    const id = lastInsertedIdRef.current;
+    if (!id) return;
+    await handleDelete(id);
+    toast.push("success", "Last highlight undone");
   };
 
   if (isLoading) {
@@ -617,15 +641,26 @@ export default function MatchHighlightsPage() {
 
                 {/* Controls (non-scrolling) */}
                 <div className="p-4 border-b border-gray-200">
-                  <Button
-                    onClick={() => void markHighlight()}
-                    disabled={isMarking}
-                    className="w-full bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-60"
-                  >
-                    {isMarking
-                      ? "Marking..."
-                      : `Mark Highlight (-${MARK_OFFSET_SECONDS}s)`}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => void markHighlight()}
+                      disabled={isMarking}
+                      className="flex-1 bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-60"
+                    >
+                      {isMarking
+                        ? "Marking..."
+                        : `Mark Highlight (-${MARK_OFFSET_SECONDS}s)`}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleUndo()}
+                      disabled={!canUndo || isMarking}
+                      className="border-gray-300 text-gray-600 disabled:opacity-40"
+                      title="Undo last highlight (Ctrl+Z)"
+                    >
+                      Undo
+                    </Button>
+                  </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     {ACTIONS.map((action) => {
