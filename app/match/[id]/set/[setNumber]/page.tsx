@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -8,9 +8,10 @@ import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { Button } from "@/components/ui/button";
 import { HighlightReelPanel } from "@/components/highlight-reel-panel";
+import { ActionLegend } from "@/components/action-legend";
 import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player";
 import { PointTimeline } from "@/components/point-timeline";
-import { getSetData, type Point } from "@/lib/match-data";
+import { getSetData, type Point, actionTypeColors } from "@/lib/match-data";
 
 import { ArrowLeft, AlertCircle, Trash2, X } from "lucide-react";
 
@@ -30,6 +31,8 @@ type HighlightPoint = {
   id: string;
   timestamp: number; // seconds
   action: HighlightAction;
+  clipBefore?: number; // seconds to include before the timestamp
+  clipAfter?: number; // seconds to include after the timestamp
 };
 
 type ToastKind = "success" | "error";
@@ -102,6 +105,21 @@ export default function MatchHighlightsPage() {
     useState<HighlightAction>("spike");
   const [isMarking, setIsMarking] = useState(false);
 
+  // Track which point IDs have unsaved offset edits
+  const [dirtyOffsetIds, setDirtyOffsetIds] = useState<Set<string>>(new Set());
+  const [isSavingOffsets, setIsSavingOffsets] = useState(false);
+  const hasUnsavedOffsets = dirtyOffsetIds.size > 0;
+
+  // Clip-bounded playback: which point is actively playing + current video time
+  const [activeClipId, setActiveClipId] = useState<string | null>(null);
+  const [currentVideoTime, setCurrentVideoTime] = useState(0);
+  // We need a ref for the active clip so the timeupdate callback can read it without stale closures
+  const activeClipRef = useRef<{ id: string; start: number; end: number } | null>(null);
+
+  // Track the most recently inserted point for undo
+  const lastInsertedIdRef = useRef<string | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+
   // Toasts (bottom-right)
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -122,6 +140,45 @@ export default function MatchHighlightsPage() {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     },
   };
+
+  // Hotkey handling: map number keys to actions (1..N) and 'm' to mark with current action
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      if (
+        active &&
+        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || (active as HTMLElement).isContentEditable)
+      )
+        return;
+
+      const k = e.key;
+      // number keys: 1..ACTIONS.length -> direct mark using that action
+      if (/^[1-9]$/.test(k)) {
+        const idx = Number(k) - 1;
+        if (idx >= 0 && idx < ACTIONS.length) {
+          e.preventDefault();
+          const action = ACTIONS[idx];
+          void markHighlight(action);
+        }
+        return;
+      }
+
+      if (k === "m" || k === " ") {
+        e.preventDefault();
+        void markHighlight();
+        return;
+      }
+
+      // Ctrl/Cmd+Z → undo last point
+      if (k === "z" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void handleUndo();
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedAction, isMarking, points]);
 
   const sortedPoints = useMemo(
     () => [...points].sort((a, b) => a.timestamp - b.timestamp),
@@ -186,7 +243,7 @@ export default function MatchHighlightsPage() {
 
         const { data: pts, error: ptsErr } = await supabase
           .from("match_points")
-          .select("id, timestamp_seconds, label")
+          .select("id, timestamp_seconds, label, clip_before, clip_after")
           .eq("match_id", matchId)
           .order("timestamp_seconds", { ascending: true });
 
@@ -196,10 +253,12 @@ export default function MatchHighlightsPage() {
           (pts ?? []).map((p) => ({
             id: p.id,
             timestamp: Number(p.timestamp_seconds),
-            action: ((p.label as HighlightAction) ??
-              "other") as HighlightAction,
+            action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
+            clipBefore: (p as any).clip_before ?? MARK_OFFSET_SECONDS,
+            clipAfter: (p as any).clip_after ?? MARK_OFFSET_SECONDS,
           })),
         );
+        setDirtyOffsetIds(new Set());
       } catch (e) {
         setPageError(e instanceof Error ? e.message : "Failed to load match.");
       } finally {
@@ -210,13 +269,17 @@ export default function MatchHighlightsPage() {
     load();
   }, [matchId, setNumber, isDemoMatch]);
 
-  const handleMarkHighlight = async () => {
+  
+
+  const markHighlight = async (action?: HighlightAction) => {
     if (isMarking) return;
+    const prevAction = selectedAction;
+    if (action) setSelectedAction(action);
 
     const now = playerRef.current?.getCurrentTime() ?? 0;
     const t = Math.max(0, now - MARK_OFFSET_SECONDS);
 
-    // UX: jump back so the user sees what was captured
+    // Seek back so the user can see the captured moment
     playerRef.current?.seekTo(t);
 
     try {
@@ -236,9 +299,11 @@ export default function MatchHighlightsPage() {
           match_id: matchId,
           user_id: user.id,
           timestamp_seconds: t,
-          label: selectedAction,
+          label: action ?? prevAction,
+          clip_before: MARK_OFFSET_SECONDS,
+          clip_after: MARK_OFFSET_SECONDS,
         })
-        .select("id, timestamp_seconds, label")
+        .select("id, timestamp_seconds, label, clip_before, clip_after")
         .single();
 
       if (insErr) throw insErr;
@@ -247,14 +312,18 @@ export default function MatchHighlightsPage() {
         id: inserted.id,
         timestamp: Number(inserted.timestamp_seconds),
         action: (inserted.label as HighlightAction) ?? "other",
+        clipBefore: MARK_OFFSET_SECONDS,
+        clipAfter: MARK_OFFSET_SECONDS,
       };
 
-      setPoints((prev) => [...prev, newPoint]);
+      setPoints((p) => [...p, newPoint]);
       setSelectedPointId(newPoint.id);
+      lastInsertedIdRef.current = newPoint.id;
+      setCanUndo(true);
 
       toast.push(
         "success",
-        `Saved ${newPoint.action.toUpperCase()} @ ${formatTime(t)}`,
+        `Saved ${(newPoint.action as string).toUpperCase()} @ ${formatTime(t)}`,
       );
     } catch (e) {
       console.error(e);
@@ -264,9 +333,65 @@ export default function MatchHighlightsPage() {
     }
   };
 
+  // Update clip offsets for a point locally (mark dirty; no DB write yet)
+  const updatePointOffset = (id: string, updates: { clipBefore?: number; clipAfter?: number }) => {
+    setPoints((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+    setDirtyOffsetIds((prev) => new Set(prev).add(id));
+  };
+
+  // Bulk-save all dirty offsets to DB
+  const applyOffsets = async () => {
+    if (dirtyOffsetIds.size === 0) return;
+    setIsSavingOffsets(true);
+    try {
+      const dirty = points.filter((p) => dirtyOffsetIds.has(p.id));
+      // Supabase JS doesn't support batch-updating different rows in one call,
+      // so we fire updates in parallel per dirty point.
+      const results = await Promise.all(
+        dirty.map((p) =>
+          supabase
+            .from("match_points")
+            .update({ clip_before: p.clipBefore ?? MARK_OFFSET_SECONDS, clip_after: p.clipAfter ?? MARK_OFFSET_SECONDS })
+            .eq("id", p.id)
+        ),
+      );
+      const failed = results.filter((r) => r.error);
+      if (failed.length > 0) {
+        toast.push("error", `Failed to save ${failed.length} offset(s)`);
+      } else {
+        toast.push("success", `Saved offsets for ${dirty.length} point(s)`);
+        setDirtyOffsetIds(new Set());
+      }
+    } catch (e) {
+      console.error(e);
+      toast.push("error", "Failed to save offsets");
+    } finally {
+      setIsSavingOffsets(false);
+    }
+  };
+
+  // Handle time updates from the video player — auto-pause when the active clip's end is reached
+  const handleVideoTimeUpdate = useCallback((time: number) => {
+    setCurrentVideoTime(time);
+    const clip = activeClipRef.current;
+    if (clip && time >= clip.end) {
+      playerRef.current?.pause();
+      activeClipRef.current = null;
+      setActiveClipId(null);
+    }
+  }, []);
+
   const handleSeek = (p: HighlightPoint) => {
     setSelectedPointId(p.id);
-    playerRef.current?.seekTo(p.timestamp);
+    const before = p.clipBefore ?? MARK_OFFSET_SECONDS;
+    const after = p.clipAfter ?? MARK_OFFSET_SECONDS;
+    const start = Math.max(0, p.timestamp - before);
+    const end = p.timestamp + after;
+    // Set the active clip boundary
+    activeClipRef.current = { id: p.id, start, end };
+    setActiveClipId(p.id);
+    playerRef.current?.seekTo(start);
+    playerRef.current?.play();
   };
 
   const handleDelete = async (id: string) => {
@@ -279,12 +404,23 @@ export default function MatchHighlightsPage() {
 
       setPoints((prev) => prev.filter((p) => p.id !== id));
       if (selectedPointId === id) setSelectedPointId(null);
+      if (lastInsertedIdRef.current === id) {
+        lastInsertedIdRef.current = null;
+        setCanUndo(false);
+      }
 
       toast.push("success", "Highlight deleted");
     } catch (e) {
       console.error(e);
       toast.push("error", "Failed to delete highlight");
     }
+  };
+
+  const handleUndo = async () => {
+    const id = lastInsertedIdRef.current;
+    if (!id) return;
+    await handleDelete(id);
+    toast.push("success", "Last highlight undone");
   };
 
   if (isLoading) {
@@ -476,18 +612,22 @@ export default function MatchHighlightsPage() {
           </div>
 
           {/* Layout: video left, highlights right */}
-          <div className="grid lg:grid-cols-3 gap-6 items-start">
+          <div className="grid lg:grid-cols-5 gap-6 items-start">
             {/* Video (2/3) */}
-            <div className="lg:col-span-2 space-y-4">
+            <div className="lg:col-span-3 space-y-4">
               <VideoPlayer
                 ref={playerRef}
                 title="Match Replay"
                 src={match.videoUrl}
+                onTimeUpdate={handleVideoTimeUpdate}
               />
+              <div className="mt-4">
+                <HighlightReelPanel matchId={matchId} />
+              </div>
             </div>
 
             {/* Highlights panel (1/3) */}
-            <div className="lg:sticky lg:top-6">
+            <div className="lg:col-span-2 lg:sticky lg:top-6">
               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col lg:h-[calc(100vh-10rem)]">
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
@@ -501,15 +641,26 @@ export default function MatchHighlightsPage() {
 
                 {/* Controls (non-scrolling) */}
                 <div className="p-4 border-b border-gray-200">
-                  <Button
-                    onClick={handleMarkHighlight}
-                    disabled={isMarking}
-                    className="w-full bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-60"
-                  >
-                    {isMarking
-                      ? "Marking..."
-                      : `Mark Highlight (-${MARK_OFFSET_SECONDS}s)`}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => void markHighlight()}
+                      disabled={isMarking}
+                      className="flex-1 bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-60"
+                    >
+                      {isMarking
+                        ? "Marking..."
+                        : `Mark Highlight (-${MARK_OFFSET_SECONDS}s)`}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleUndo()}
+                      disabled={!canUndo || isMarking}
+                      className="border-gray-300 text-gray-600 disabled:opacity-40"
+                      title="Undo last highlight (Ctrl+Z)"
+                    >
+                      Undo
+                    </Button>
+                  </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     {ACTIONS.map((action) => {
@@ -533,12 +684,35 @@ export default function MatchHighlightsPage() {
 
                   <p className="mt-3 text-xs text-gray-500">
                     Pick an action, then hit “Mark Highlight”. We save 5s
-                    earlier.
+                    earlier. You can also press number keys to capture directly.
                   </p>
+
+                  <div className="mt-3">
+                    <ActionLegend
+                      items={ACTIONS.map((a, i) => ({
+                        keyLabel: `${i + 1}`,
+                        label: a.toUpperCase(),
+                        color: (actionTypeColors as any)[a] ?? "#9CA3AF",
+                      }))}
+                    />
+                  </div>
                 </div>
-                <div className="p-4 border-b border-gray-200">
-                  <HighlightReelPanel matchId={matchId} />
-                </div>
+
+                {/* Apply offsets banner */}
+                {hasUnsavedOffsets && (
+                  <div className="px-4 py-3 border-b border-amber-200 bg-amber-50 flex items-center justify-between gap-3">
+                    <span className="text-xs font-medium text-amber-800">
+                      {dirtyOffsetIds.size} unsaved offset change{dirtyOffsetIds.size > 1 ? "s" : ""}
+                    </span>
+                    <Button
+                      onClick={() => void applyOffsets()}
+                      disabled={isSavingOffsets}
+                      className="h-7 px-3 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      {isSavingOffsets ? "Saving…" : "Apply Changes"}
+                    </Button>
+                  </div>
+                )}
 
                 {/* Scrollable list */}
                 <div className="flex-1 min-h-0 overflow-y-auto">
@@ -550,13 +724,25 @@ export default function MatchHighlightsPage() {
                     <ul className="divide-y divide-gray-200">
                       {sortedPoints.map((p) => {
                         const selected = p.id === selectedPointId;
+                        const isPlaying = p.id === activeClipId;
+
+                        // Compute progress for this clip
+                        const before = p.clipBefore ?? MARK_OFFSET_SECONDS;
+                        const after = p.clipAfter ?? MARK_OFFSET_SECONDS;
+                        const clipStart = Math.max(0, p.timestamp - before);
+                        const clipEnd = p.timestamp + after;
+                        const clipDuration = clipEnd - clipStart;
+                        let progress = 0;
+                        if (isPlaying && clipDuration > 0) {
+                          progress = Math.min(1, Math.max(0, (currentVideoTime - clipStart) / clipDuration));
+                        }
+
                         return (
                           <li
                             key={p.id}
-                            className={`px-4 py-3 flex items-start justify-between gap-3 ${
-                              selected ? "bg-blue-50" : "hover:bg-gray-50"
-                            }`}
+                            className={`px-4 py-3 ${selected ? "bg-blue-50" : "hover:bg-gray-50"}`}
                           >
+                            <div className="flex items-start justify-between gap-3">
                             <button
                               type="button"
                               className="flex-1 text-left"
@@ -575,6 +761,46 @@ export default function MatchHighlightsPage() {
                               </p>
                             </button>
 
+                            <div className="ml-3 flex flex-col items-end gap-2">
+                              <div className="flex items-center gap-2 text-xs text-gray-600">
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    aria-label="decrease start"
+                                    onClick={() => updatePointOffset(p.id, { clipBefore: Math.max(0, (p.clipBefore ?? MARK_OFFSET_SECONDS) - 1) })}
+                                    className="px-2 py-1 bg-gray-100 rounded border"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="px-2">Start: -{p.clipBefore ?? MARK_OFFSET_SECONDS}s</span>
+                                  <button
+                                    aria-label="increase start"
+                                    onClick={() => updatePointOffset(p.id, { clipBefore: (p.clipBefore ?? MARK_OFFSET_SECONDS) + 1 })}
+                                    className="px-2 py-1 bg-gray-100 rounded border"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    aria-label="decrease end"
+                                    onClick={() => updatePointOffset(p.id, { clipAfter: Math.max(0, (p.clipAfter ?? MARK_OFFSET_SECONDS) - 1) })}
+                                    className="px-2 py-1 bg-gray-100 rounded border"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="px-2">End: +{p.clipAfter ?? MARK_OFFSET_SECONDS}s</span>
+                                  <button
+                                    aria-label="increase end"
+                                    onClick={() => updatePointOffset(p.id, { clipAfter: (p.clipAfter ?? MARK_OFFSET_SECONDS) + 1 })}
+                                    className="px-2 py-1 bg-gray-100 rounded border"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
                             <Button
                               variant="outline"
                               className="border-gray-300"
@@ -583,6 +809,26 @@ export default function MatchHighlightsPage() {
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
+                            </div>
+
+                            {/* Clip progress bar */}
+                            <div className="mt-2 w-full">
+                              <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-150 ${
+                                    isPlaying ? "bg-[#0047AB]" : selected ? "bg-blue-300" : "bg-gray-300"
+                                  }`}
+                                  style={{ width: `${(isPlaying ? progress * 100 : selected ? 100 : 0)}%` }}
+                                />
+                              </div>
+                              {(isPlaying || selected) && (
+                                <div className="flex justify-between mt-1 text-[10px] text-gray-400">
+                                  <span>{formatTime(clipStart)}</span>
+                                  {isPlaying && <span className="text-[#0047AB] font-medium">{formatTime(currentVideoTime)}</span>}
+                                  <span>{formatTime(clipEnd)}</span>
+                                </div>
+                              )}
+                            </div>
                           </li>
                         );
                       })}
@@ -597,7 +843,6 @@ export default function MatchHighlightsPage() {
 
       <SiteFooter />
 
-      {/* Bottom-right toasts (fixed, does not shift layout) */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
         {toasts.map((t) => (
           <div
