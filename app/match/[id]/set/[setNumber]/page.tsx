@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -109,6 +109,12 @@ export default function MatchHighlightsPage() {
   const [dirtyOffsetIds, setDirtyOffsetIds] = useState<Set<string>>(new Set());
   const [isSavingOffsets, setIsSavingOffsets] = useState(false);
   const hasUnsavedOffsets = dirtyOffsetIds.size > 0;
+
+  // Clip-bounded playback: which point is actively playing + current video time
+  const [activeClipId, setActiveClipId] = useState<string | null>(null);
+  const [currentVideoTime, setCurrentVideoTime] = useState(0);
+  // We need a ref for the active clip so the timeupdate callback can read it without stale closures
+  const activeClipRef = useRef<{ id: string; start: number; end: number } | null>(null);
 
   // Toasts (bottom-right)
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -351,10 +357,28 @@ export default function MatchHighlightsPage() {
     }
   };
 
+  // Handle time updates from the video player — auto-pause when the active clip's end is reached
+  const handleVideoTimeUpdate = useCallback((time: number) => {
+    setCurrentVideoTime(time);
+    const clip = activeClipRef.current;
+    if (clip && time >= clip.end) {
+      playerRef.current?.pause();
+      activeClipRef.current = null;
+      setActiveClipId(null);
+    }
+  }, []);
+
   const handleSeek = (p: HighlightPoint) => {
     setSelectedPointId(p.id);
-    const start = Math.max(0, p.timestamp - (p.clipBefore ?? MARK_OFFSET_SECONDS));
+    const before = p.clipBefore ?? MARK_OFFSET_SECONDS;
+    const after = p.clipAfter ?? MARK_OFFSET_SECONDS;
+    const start = Math.max(0, p.timestamp - before);
+    const end = p.timestamp + after;
+    // Set the active clip boundary
+    activeClipRef.current = { id: p.id, start, end };
+    setActiveClipId(p.id);
     playerRef.current?.seekTo(start);
+    playerRef.current?.play();
   };
 
   const handleDelete = async (id: string) => {
@@ -571,6 +595,7 @@ export default function MatchHighlightsPage() {
                 ref={playerRef}
                 title="Match Replay"
                 src={match.videoUrl}
+                onTimeUpdate={handleVideoTimeUpdate}
               />
               <div className="mt-4">
                 <HighlightReelPanel matchId={matchId} />
@@ -664,13 +689,25 @@ export default function MatchHighlightsPage() {
                     <ul className="divide-y divide-gray-200">
                       {sortedPoints.map((p) => {
                         const selected = p.id === selectedPointId;
+                        const isPlaying = p.id === activeClipId;
+
+                        // Compute progress for this clip
+                        const before = p.clipBefore ?? MARK_OFFSET_SECONDS;
+                        const after = p.clipAfter ?? MARK_OFFSET_SECONDS;
+                        const clipStart = Math.max(0, p.timestamp - before);
+                        const clipEnd = p.timestamp + after;
+                        const clipDuration = clipEnd - clipStart;
+                        let progress = 0;
+                        if (isPlaying && clipDuration > 0) {
+                          progress = Math.min(1, Math.max(0, (currentVideoTime - clipStart) / clipDuration));
+                        }
+
                         return (
                           <li
                             key={p.id}
-                            className={`px-4 py-3 flex items-start justify-between gap-3 ${
-                              selected ? "bg-blue-50" : "hover:bg-gray-50"
-                            }`}
+                            className={`px-4 py-3 ${selected ? "bg-blue-50" : "hover:bg-gray-50"}`}
                           >
+                            <div className="flex items-start justify-between gap-3">
                             <button
                               type="button"
                               className="flex-1 text-left"
@@ -737,6 +774,26 @@ export default function MatchHighlightsPage() {
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
+                            </div>
+
+                            {/* Clip progress bar */}
+                            <div className="mt-2 w-full">
+                              <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-150 ${
+                                    isPlaying ? "bg-[#0047AB]" : selected ? "bg-blue-300" : "bg-gray-300"
+                                  }`}
+                                  style={{ width: `${(isPlaying ? progress * 100 : selected ? 100 : 0)}%` }}
+                                />
+                              </div>
+                              {(isPlaying || selected) && (
+                                <div className="flex justify-between mt-1 text-[10px] text-gray-400">
+                                  <span>{formatTime(clipStart)}</span>
+                                  {isPlaying && <span className="text-[#0047AB] font-medium">{formatTime(currentVideoTime)}</span>}
+                                  <span>{formatTime(clipEnd)}</span>
+                                </div>
+                              )}
+                            </div>
                           </li>
                         );
                       })}

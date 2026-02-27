@@ -12,10 +12,11 @@ export type VideoPlayerHandle = {
 interface VideoPlayerProps {
   title?: string;
   src?: string | null;
+  onTimeUpdate?: (currentTime: number) => void;
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  function VideoPlayer({ title = "Match Replay", src }, ref) {
+  function VideoPlayer({ title = "Match Replay", src, onTimeUpdate }, ref) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
 
     useImperativeHandle(ref, () => ({
@@ -52,6 +53,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               controls
               className="w-full h-full"
               preload="metadata"
+              onTimeUpdate={
+                onTimeUpdate
+                  ? (e) => onTimeUpdate((e.target as HTMLVideoElement).currentTime)
+                  : undefined
+              }
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-sm text-gray-200">
