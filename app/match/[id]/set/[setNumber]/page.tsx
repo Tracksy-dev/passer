@@ -105,6 +105,11 @@ export default function MatchHighlightsPage() {
     useState<HighlightAction>("spike");
   const [isMarking, setIsMarking] = useState(false);
 
+  // Track which point IDs have unsaved offset edits
+  const [dirtyOffsetIds, setDirtyOffsetIds] = useState<Set<string>>(new Set());
+  const [isSavingOffsets, setIsSavingOffsets] = useState(false);
+  const hasUnsavedOffsets = dirtyOffsetIds.size > 0;
+
   // Toasts (bottom-right)
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -221,34 +226,22 @@ export default function MatchHighlightsPage() {
 
         const { data: pts, error: ptsErr } = await supabase
           .from("match_points")
-          .select("id, timestamp_seconds, label")
+          .select("id, timestamp_seconds, label, clip_before, clip_after")
           .eq("match_id", matchId)
           .order("timestamp_seconds", { ascending: true });
 
         if (ptsErr) throw ptsErr;
 
-        // load saved offsets from localStorage (per-match)
-        const storageKey = `match:${matchId}:pointOffsets`;
-        let savedOffsets: Record<string, { clipBefore?: number; clipAfter?: number }> = {};
-        try {
-          const raw = typeof window !== "undefined" ? localStorage.getItem(storageKey) : null;
-          if (raw) savedOffsets = JSON.parse(raw);
-        } catch (e) {
-          /* ignore */
-        }
-
         setPoints(
-          (pts ?? []).map((p) => {
-            const base: HighlightPoint = {
-              id: p.id,
-              timestamp: Number(p.timestamp_seconds),
-              action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
-              clipBefore: savedOffsets[p.id]?.clipBefore ?? MARK_OFFSET_SECONDS,
-              clipAfter: savedOffsets[p.id]?.clipAfter ?? MARK_OFFSET_SECONDS,
-            };
-            return base;
-          }),
+          (pts ?? []).map((p) => ({
+            id: p.id,
+            timestamp: Number(p.timestamp_seconds),
+            action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
+            clipBefore: (p as any).clip_before ?? MARK_OFFSET_SECONDS,
+            clipAfter: (p as any).clip_after ?? MARK_OFFSET_SECONDS,
+          })),
         );
+        setDirtyOffsetIds(new Set());
       } catch (e) {
         setPageError(e instanceof Error ? e.message : "Failed to load match.");
       } finally {
@@ -290,8 +283,10 @@ export default function MatchHighlightsPage() {
           user_id: user.id,
           timestamp_seconds: t,
           label: action ?? prevAction,
+          clip_before: MARK_OFFSET_SECONDS,
+          clip_after: MARK_OFFSET_SECONDS,
         })
-        .select("id, timestamp_seconds, label")
+        .select("id, timestamp_seconds, label, clip_before, clip_after")
         .single();
 
       if (insErr) throw insErr;
@@ -305,16 +300,6 @@ export default function MatchHighlightsPage() {
       };
 
       setPoints((p) => [...p, newPoint]);
-      // persist default offsets for this new point
-      try {
-        const storageKey = `match:${matchId}:pointOffsets`;
-        const raw = localStorage.getItem(storageKey);
-        const map = raw ? JSON.parse(raw) : {};
-        map[newPoint.id] = { clipBefore: newPoint.clipBefore, clipAfter: newPoint.clipAfter };
-        localStorage.setItem(storageKey, JSON.stringify(map));
-      } catch (e) {
-        // ignore
-      }
       setSelectedPointId(newPoint.id);
 
       toast.push(
@@ -329,21 +314,41 @@ export default function MatchHighlightsPage() {
     }
   };
 
-  // Update clip offsets for a point and persist to localStorage
+  // Update clip offsets for a point locally (mark dirty; no DB write yet)
   const updatePointOffset = (id: string, updates: { clipBefore?: number; clipAfter?: number }) => {
-    setPoints((prev) => {
-      const next = prev.map((p) => (p.id === id ? { ...p, ...updates } : p));
-      try {
-        const storageKey = `match:${matchId}:pointOffsets`;
-        const raw = localStorage.getItem(storageKey);
-        const map = raw ? JSON.parse(raw) : {};
-        map[id] = { ...(map[id] || {}), ...(updates as any) };
-        localStorage.setItem(storageKey, JSON.stringify(map));
-      } catch (e) {
-        // ignore
+    setPoints((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+    setDirtyOffsetIds((prev) => new Set(prev).add(id));
+  };
+
+  // Bulk-save all dirty offsets to DB
+  const applyOffsets = async () => {
+    if (dirtyOffsetIds.size === 0) return;
+    setIsSavingOffsets(true);
+    try {
+      const dirty = points.filter((p) => dirtyOffsetIds.has(p.id));
+      // Supabase JS doesn't support batch-updating different rows in one call,
+      // so we fire updates in parallel per dirty point.
+      const results = await Promise.all(
+        dirty.map((p) =>
+          supabase
+            .from("match_points")
+            .update({ clip_before: p.clipBefore ?? MARK_OFFSET_SECONDS, clip_after: p.clipAfter ?? MARK_OFFSET_SECONDS })
+            .eq("id", p.id)
+        ),
+      );
+      const failed = results.filter((r) => r.error);
+      if (failed.length > 0) {
+        toast.push("error", `Failed to save ${failed.length} offset(s)`);
+      } else {
+        toast.push("success", `Saved offsets for ${dirty.length} point(s)`);
+        setDirtyOffsetIds(new Set());
       }
-      return next;
-    });
+    } catch (e) {
+      console.error(e);
+      toast.push("error", "Failed to save offsets");
+    } finally {
+      setIsSavingOffsets(false);
+    }
   };
 
   const handleSeek = (p: HighlightPoint) => {
@@ -632,6 +637,22 @@ export default function MatchHighlightsPage() {
                     />
                   </div>
                 </div>
+
+                {/* Apply offsets banner */}
+                {hasUnsavedOffsets && (
+                  <div className="px-4 py-3 border-b border-amber-200 bg-amber-50 flex items-center justify-between gap-3">
+                    <span className="text-xs font-medium text-amber-800">
+                      {dirtyOffsetIds.size} unsaved offset change{dirtyOffsetIds.size > 1 ? "s" : ""}
+                    </span>
+                    <Button
+                      onClick={() => void applyOffsets()}
+                      disabled={isSavingOffsets}
+                      className="h-7 px-3 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      {isSavingOffsets ? "Saving…" : "Apply Changes"}
+                    </Button>
+                  </div>
+                )}
 
                 {/* Scrollable list */}
                 <div className="flex-1 min-h-0 overflow-y-auto">
