@@ -51,8 +51,11 @@ export async function middleware(request: NextRequest) {
     (route) => pathname === route || pathname.startsWith(route + "/")
   );
 
+  // Public profile pages: /profile/<username> (but NOT /profile itself)
+  const isPublicProfile = /^\/profile\/[^/]+$/.test(pathname);
+
   // If user is not authenticated and trying to access protected route
-  if (!user && !isPublicRoute) {
+  if (!user && !isPublicRoute && !isPublicProfile) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirectTo", pathname);

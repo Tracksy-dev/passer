@@ -24,6 +24,7 @@ import {
   Calendar,
   Lock,
   Globe,
+  Link2,
 } from "lucide-react";
 
 type ReelItem = {
@@ -58,6 +59,7 @@ export default function ProfilePage() {
 
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [profileError, setProfileError] = useState<string>("");
   const [profileSuccess, setProfileSuccess] = useState(false);
 
@@ -156,6 +158,15 @@ export default function ProfilePage() {
 
       setUser(u);
       setAvatarUrl(u.user_metadata?.avatar_url ?? "");
+
+      // Sync avatar_url to profiles table for public profile pages
+      const currentAvatar = u.user_metadata?.avatar_url ?? "";
+      if (currentAvatar) {
+        await supabase
+          .from("profiles")
+          .update({ avatar_url: currentAvatar })
+          .eq("id", u.id);
+      }
 
       // Load profile
       const { data: profileData } = await supabase
@@ -361,6 +372,35 @@ export default function ProfilePage() {
                   className="h-8 px-4 text-sm font-semibold bg-gray-100 border-gray-200 text-gray-900 hover:bg-gray-200 rounded-lg"
                 >
                   Edit profile
+                </Button>
+                <Button
+                  onClick={async () => {
+                    const url = `${window.location.origin}/profile/${profile.username}`;
+                    try {
+                      if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(url);
+                      } else {
+                        const textArea = document.createElement("textarea");
+                        textArea.value = url;
+                        textArea.style.position = "fixed";
+                        textArea.style.left = "-9999px";
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        document.execCommand("copy");
+                        document.body.removeChild(textArea);
+                      }
+                      setLinkCopied(true);
+                      setTimeout(() => setLinkCopied(false), 2500);
+                    } catch {
+                      console.error("Failed to copy link");
+                    }
+                  }}
+                  variant="outline"
+                  className="h-8 px-3 text-sm font-semibold bg-gray-100 border-gray-200 text-gray-900 hover:bg-gray-200 rounded-lg"
+                >
+                  <Link2 className="w-4 h-4 mr-1.5" />
+                  {linkCopied ? "Copied!" : "Share profile"}
                 </Button>
                 <button
                   onClick={() => router.push("/settings")}
@@ -875,6 +915,18 @@ export default function ProfilePage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* Copy-link toast */}
+      {linkCopied && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className="w-[320px] rounded-lg border shadow-lg p-4 flex items-center gap-3 bg-green-50 border-green-200">
+            <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+            <p className="text-sm font-medium text-green-800">
+              Profile link copied to clipboard!
+            </p>
+          </div>
+        </div>
+      )}
 
       <SiteFooter />
     </div>
