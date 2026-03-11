@@ -27,7 +27,13 @@ function formatDate(iso: string) {
   return d.toLocaleString();
 }
 
-export function HighlightReelPanel({ matchId }: { matchId: string }) {
+export function HighlightReelPanel({
+  matchId,
+  selectedPointIds,
+}: {
+  matchId: string;
+  selectedPointIds?: Set<string>;
+}) {
   const [reels, setReels] = useState<ReelJobRow[]>([]);
   const [selectedReelId, setSelectedReelId] = useState<string | null>(null);
 
@@ -107,6 +113,12 @@ export function HighlightReelPanel({ matchId }: { matchId: string }) {
       if (!count || count < 1)
         throw new Error("Add at least one highlight first.");
 
+      // Use selected point IDs if provided, otherwise include all
+      const pointIds =
+        selectedPointIds && selectedPointIds.size > 0
+          ? Array.from(selectedPointIds)
+          : undefined;
+
       const { data: inserted, error: insErr } = await supabase
         .from("reel_jobs")
         .insert({
@@ -116,6 +128,7 @@ export function HighlightReelPanel({ matchId }: { matchId: string }) {
           clip_before: 6,
           clip_after: 6,
           title: null,
+          ...(pointIds ? { point_ids: pointIds } : {}),
         })
         .select("id")
         .single();
@@ -202,8 +215,16 @@ export function HighlightReelPanel({ matchId }: { matchId: string }) {
         </span>
         <Button
           onClick={startNewReel}
-          disabled={isStarting}
-          className="h-8 px-3 bg-[#0047AB] hover:bg-[#003580] text-white"
+          disabled={
+            isStarting ||
+            (selectedPointIds !== undefined && selectedPointIds.size === 0)
+          }
+          className="h-8 px-3 bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-50"
+          title={
+            selectedPointIds !== undefined && selectedPointIds.size === 0
+              ? "Select at least one highlight to generate a reel"
+              : undefined
+          }
         >
           {isStarting ? (
             <>

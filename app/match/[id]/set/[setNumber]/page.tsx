@@ -13,7 +13,14 @@ import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player";
 import { PointTimeline } from "@/components/point-timeline";
 import { getSetData, type Point, actionTypeColors } from "@/lib/match-data";
 
-import { ArrowLeft, AlertCircle, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  AlertCircle,
+  Trash2,
+  X,
+  CheckSquare,
+  Square,
+} from "lucide-react";
 
 // Demo match IDs that use mock data
 const DEMO_MATCH_IDS = ["1", "2", "3"];
@@ -103,6 +110,11 @@ export default function MatchHighlightsPage() {
 
   const [selectedAction, setSelectedAction] =
     useState<HighlightAction>("spike");
+
+  // Checkbox selection for reel generation
+  const [selectedPointIds, setSelectedPointIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [isMarking, setIsMarking] = useState(false);
 
   // Track which point IDs have unsaved offset edits
@@ -114,7 +126,11 @@ export default function MatchHighlightsPage() {
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
   // We need a ref for the active clip so the timeupdate callback can read it without stale closures
-  const activeClipRef = useRef<{ id: string; start: number; end: number } | null>(null);
+  const activeClipRef = useRef<{
+    id: string;
+    start: number;
+    end: number;
+  } | null>(null);
 
   // Track the most recently inserted point for undo
   const lastInsertedIdRef = useRef<string | null>(null);
@@ -147,7 +163,9 @@ export default function MatchHighlightsPage() {
       const active = document.activeElement;
       if (
         active &&
-        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || (active as HTMLElement).isContentEditable)
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          (active as HTMLElement).isContentEditable)
       )
         return;
 
@@ -249,15 +267,15 @@ export default function MatchHighlightsPage() {
 
         if (ptsErr) throw ptsErr;
 
-        setPoints(
-          (pts ?? []).map((p) => ({
-            id: p.id,
-            timestamp: Number(p.timestamp_seconds),
-            action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
-            clipBefore: (p as any).clip_before ?? MARK_OFFSET_SECONDS,
-            clipAfter: (p as any).clip_after ?? MARK_OFFSET_SECONDS,
-          })),
-        );
+        const loaded = (pts ?? []).map((p) => ({
+          id: p.id,
+          timestamp: Number(p.timestamp_seconds),
+          action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
+          clipBefore: (p as any).clip_before ?? MARK_OFFSET_SECONDS,
+          clipAfter: (p as any).clip_after ?? MARK_OFFSET_SECONDS,
+        }));
+        setPoints(loaded);
+        setSelectedPointIds(new Set(loaded.map((p) => p.id)));
         setDirtyOffsetIds(new Set());
       } catch (e) {
         setPageError(e instanceof Error ? e.message : "Failed to load match.");
@@ -268,8 +286,6 @@ export default function MatchHighlightsPage() {
 
     load();
   }, [matchId, setNumber, isDemoMatch]);
-
-  
 
   const markHighlight = async (action?: HighlightAction) => {
     if (isMarking) return;
@@ -318,6 +334,7 @@ export default function MatchHighlightsPage() {
 
       setPoints((p) => [...p, newPoint]);
       setSelectedPointId(newPoint.id);
+      setSelectedPointIds((prev) => new Set(prev).add(newPoint.id));
       lastInsertedIdRef.current = newPoint.id;
       setCanUndo(true);
 
@@ -334,8 +351,13 @@ export default function MatchHighlightsPage() {
   };
 
   // Update clip offsets for a point locally (mark dirty; no DB write yet)
-  const updatePointOffset = (id: string, updates: { clipBefore?: number; clipAfter?: number }) => {
-    setPoints((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+  const updatePointOffset = (
+    id: string,
+    updates: { clipBefore?: number; clipAfter?: number },
+  ) => {
+    setPoints((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+    );
     setDirtyOffsetIds((prev) => new Set(prev).add(id));
   };
 
@@ -351,8 +373,11 @@ export default function MatchHighlightsPage() {
         dirty.map((p) =>
           supabase
             .from("match_points")
-            .update({ clip_before: p.clipBefore ?? MARK_OFFSET_SECONDS, clip_after: p.clipAfter ?? MARK_OFFSET_SECONDS })
-            .eq("id", p.id)
+            .update({
+              clip_before: p.clipBefore ?? MARK_OFFSET_SECONDS,
+              clip_after: p.clipAfter ?? MARK_OFFSET_SECONDS,
+            })
+            .eq("id", p.id),
         ),
       );
       const failed = results.filter((r) => r.error);
@@ -403,6 +428,11 @@ export default function MatchHighlightsPage() {
       if (error) throw error;
 
       setPoints((prev) => prev.filter((p) => p.id !== id));
+      setSelectedPointIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       if (selectedPointId === id) setSelectedPointId(null);
       if (lastInsertedIdRef.current === id) {
         lastInsertedIdRef.current = null;
@@ -622,7 +652,10 @@ export default function MatchHighlightsPage() {
                 onTimeUpdate={handleVideoTimeUpdate}
               />
               <div className="mt-4">
-                <HighlightReelPanel matchId={matchId} />
+                <HighlightReelPanel
+                  matchId={matchId}
+                  selectedPointIds={selectedPointIds}
+                />
               </div>
             </div>
 
@@ -635,7 +668,7 @@ export default function MatchHighlightsPage() {
                     Highlights
                   </span>
                   <span className="text-xs text-gray-500">
-                    {sortedPoints.length} saved
+                    {selectedPointIds.size}/{sortedPoints.length} selected
                   </span>
                 </div>
 
@@ -686,7 +719,55 @@ export default function MatchHighlightsPage() {
                     Pick an action, then hit “Mark Highlight”. We save 5s
                     earlier. You can also press number keys to capture directly.
                   </p>
-
+                  {/* Selection controls */}
+                  {sortedPoints.length > 0 && (
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs border-gray-300"
+                          onClick={() =>
+                            setSelectedPointIds(
+                              new Set(sortedPoints.map((p) => p.id)),
+                            )
+                          }
+                          disabled={
+                            selectedPointIds.size === sortedPoints.length
+                          }
+                        >
+                          <CheckSquare className="w-3.5 h-3.5 mr-1" />
+                          Select All
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs border-gray-300"
+                          onClick={() => setSelectedPointIds(new Set())}
+                          disabled={selectedPointIds.size === 0}
+                        >
+                          <Square className="w-3.5 h-3.5 mr-1" />
+                          Deselect All
+                        </Button>
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        ~
+                        {(() => {
+                          const totalSec = sortedPoints
+                            .filter((p) => selectedPointIds.has(p.id))
+                            .reduce(
+                              (sum, p) =>
+                                sum +
+                                (p.clipBefore ?? MARK_OFFSET_SECONDS) +
+                                (p.clipAfter ?? MARK_OFFSET_SECONDS),
+                              0,
+                            );
+                          return formatTime(totalSec);
+                        })()}{" "}
+                        est. duration
+                      </span>
+                    </div>
+                  )}
                   <div className="mt-3">
                     <ActionLegend
                       items={ACTIONS.map((a, i) => ({
@@ -702,7 +783,8 @@ export default function MatchHighlightsPage() {
                 {hasUnsavedOffsets && (
                   <div className="px-4 py-3 border-b border-amber-200 bg-amber-50 flex items-center justify-between gap-3">
                     <span className="text-xs font-medium text-amber-800">
-                      {dirtyOffsetIds.size} unsaved offset change{dirtyOffsetIds.size > 1 ? "s" : ""}
+                      {dirtyOffsetIds.size} unsaved offset change
+                      {dirtyOffsetIds.size > 1 ? "s" : ""}
                     </span>
                     <Button
                       onClick={() => void applyOffsets()}
@@ -734,7 +816,13 @@ export default function MatchHighlightsPage() {
                         const clipDuration = clipEnd - clipStart;
                         let progress = 0;
                         if (isPlaying && clipDuration > 0) {
-                          progress = Math.min(1, Math.max(0, (currentVideoTime - clipStart) / clipDuration));
+                          progress = Math.min(
+                            1,
+                            Math.max(
+                              0,
+                              (currentVideoTime - clipStart) / clipDuration,
+                            ),
+                          );
                         }
 
                         return (
@@ -743,72 +831,129 @@ export default function MatchHighlightsPage() {
                             className={`px-4 py-3 ${selected ? "bg-blue-50" : "hover:bg-gray-50"}`}
                           >
                             <div className="flex items-start justify-between gap-3">
-                            <button
-                              type="button"
-                              className="flex-1 text-left"
-                              onClick={() => handleSeek(p)}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium text-gray-900">
-                                  {p.action.toUpperCase()}
-                                </span>
-                                <span className="text-xs text-gray-600">
-                                  {formatTime(p.timestamp)}
-                                </span>
-                              </div>
-                              <p className="text-xs text-gray-500 mt-1">
-                                Click to seek
-                              </p>
-                            </button>
-
-                            <div className="ml-3 flex flex-col items-end gap-2">
-                              <div className="flex items-center gap-2 text-xs text-gray-600">
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    aria-label="decrease start"
-                                    onClick={() => updatePointOffset(p.id, { clipBefore: Math.max(0, (p.clipBefore ?? MARK_OFFSET_SECONDS) - 1) })}
-                                    className="px-2 py-1 bg-gray-100 rounded border"
-                                  >
-                                    -
-                                  </button>
-                                  <span className="px-2">Start: -{p.clipBefore ?? MARK_OFFSET_SECONDS}s</span>
-                                  <button
-                                    aria-label="increase start"
-                                    onClick={() => updatePointOffset(p.id, { clipBefore: (p.clipBefore ?? MARK_OFFSET_SECONDS) + 1 })}
-                                    className="px-2 py-1 bg-gray-100 rounded border"
-                                  >
-                                    +
-                                  </button>
+                              {" "}
+                              {/* Checkbox */}
+                              <button
+                                type="button"
+                                className="mt-0.5 flex-shrink-0"
+                                onClick={() => {
+                                  setSelectedPointIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(p.id)) next.delete(p.id);
+                                    else next.add(p.id);
+                                    return next;
+                                  });
+                                }}
+                                aria-label={
+                                  selectedPointIds.has(p.id)
+                                    ? "Exclude from reel"
+                                    : "Include in reel"
+                                }
+                              >
+                                {selectedPointIds.has(p.id) ? (
+                                  <CheckSquare className="w-5 h-5 text-[#0047AB]" />
+                                ) : (
+                                  <Square className="w-5 h-5 text-gray-400" />
+                                )}
+                              </button>{" "}
+                              <button
+                                type="button"
+                                className="flex-1 text-left"
+                                onClick={() => handleSeek(p)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {p.action.toUpperCase()}
+                                  </span>
+                                  <span className="text-xs text-gray-600">
+                                    {formatTime(p.timestamp)}
+                                  </span>
                                 </div>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Click to seek
+                                </p>
+                              </button>
+                              <div className="ml-3 flex flex-col items-end gap-2">
+                                <div className="flex items-center gap-2 text-xs text-gray-600">
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      aria-label="decrease start"
+                                      onClick={() =>
+                                        updatePointOffset(p.id, {
+                                          clipBefore: Math.max(
+                                            0,
+                                            (p.clipBefore ??
+                                              MARK_OFFSET_SECONDS) - 1,
+                                          ),
+                                        })
+                                      }
+                                      className="px-2 py-1 bg-gray-100 rounded border"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="px-2">
+                                      Start: -
+                                      {p.clipBefore ?? MARK_OFFSET_SECONDS}s
+                                    </span>
+                                    <button
+                                      aria-label="increase start"
+                                      onClick={() =>
+                                        updatePointOffset(p.id, {
+                                          clipBefore:
+                                            (p.clipBefore ??
+                                              MARK_OFFSET_SECONDS) + 1,
+                                        })
+                                      }
+                                      className="px-2 py-1 bg-gray-100 rounded border"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
 
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    aria-label="decrease end"
-                                    onClick={() => updatePointOffset(p.id, { clipAfter: Math.max(0, (p.clipAfter ?? MARK_OFFSET_SECONDS) - 1) })}
-                                    className="px-2 py-1 bg-gray-100 rounded border"
-                                  >
-                                    -
-                                  </button>
-                                  <span className="px-2">End: +{p.clipAfter ?? MARK_OFFSET_SECONDS}s</span>
-                                  <button
-                                    aria-label="increase end"
-                                    onClick={() => updatePointOffset(p.id, { clipAfter: (p.clipAfter ?? MARK_OFFSET_SECONDS) + 1 })}
-                                    className="px-2 py-1 bg-gray-100 rounded border"
-                                  >
-                                    +
-                                  </button>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      aria-label="decrease end"
+                                      onClick={() =>
+                                        updatePointOffset(p.id, {
+                                          clipAfter: Math.max(
+                                            0,
+                                            (p.clipAfter ??
+                                              MARK_OFFSET_SECONDS) - 1,
+                                          ),
+                                        })
+                                      }
+                                      className="px-2 py-1 bg-gray-100 rounded border"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="px-2">
+                                      End: +{p.clipAfter ?? MARK_OFFSET_SECONDS}
+                                      s
+                                    </span>
+                                    <button
+                                      aria-label="increase end"
+                                      onClick={() =>
+                                        updatePointOffset(p.id, {
+                                          clipAfter:
+                                            (p.clipAfter ??
+                                              MARK_OFFSET_SECONDS) + 1,
+                                        })
+                                      }
+                                      className="px-2 py-1 bg-gray-100 rounded border"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-
-                            <Button
-                              variant="outline"
-                              className="border-gray-300"
-                              onClick={() => handleDelete(p.id)}
-                              aria-label="Delete highlight"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                              <Button
+                                variant="outline"
+                                className="border-gray-300"
+                                onClick={() => handleDelete(p.id)}
+                                aria-label="Delete highlight"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
                             </div>
 
                             {/* Clip progress bar */}
@@ -816,15 +961,25 @@ export default function MatchHighlightsPage() {
                               <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
                                 <div
                                   className={`h-full rounded-full transition-all duration-150 ${
-                                    isPlaying ? "bg-[#0047AB]" : selected ? "bg-blue-300" : "bg-gray-300"
+                                    isPlaying
+                                      ? "bg-[#0047AB]"
+                                      : selected
+                                        ? "bg-blue-300"
+                                        : "bg-gray-300"
                                   }`}
-                                  style={{ width: `${(isPlaying ? progress * 100 : selected ? 100 : 0)}%` }}
+                                  style={{
+                                    width: `${isPlaying ? progress * 100 : selected ? 100 : 0}%`,
+                                  }}
                                 />
                               </div>
                               {(isPlaying || selected) && (
                                 <div className="flex justify-between mt-1 text-[10px] text-gray-400">
                                   <span>{formatTime(clipStart)}</span>
-                                  {isPlaying && <span className="text-[#0047AB] font-medium">{formatTime(currentVideoTime)}</span>}
+                                  {isPlaying && (
+                                    <span className="text-[#0047AB] font-medium">
+                                      {formatTime(currentVideoTime)}
+                                    </span>
+                                  )}
                                   <span>{formatTime(clipEnd)}</span>
                                 </div>
                               )}
