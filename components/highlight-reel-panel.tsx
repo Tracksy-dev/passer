@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Trash2, Loader2, Eye, EyeOff } from "lucide-react";
+import { Trash2, Loader2, Eye, EyeOff, Globe } from "lucide-react";
 
 type ReelJobStatus = "queued" | "processing" | "complete" | "failed";
 
@@ -20,6 +20,7 @@ type ReelJobRow = {
   created_at: string;
   title?: string | null;
   is_public: boolean;
+  show_on_explore: boolean;
 };
 
 function formatDate(iso: string) {
@@ -51,7 +52,7 @@ export function HighlightReelPanel({
     const { data, error } = await supabase
       .from("reel_jobs")
       .select(
-        "id, match_id, user_id, status, clip_before, clip_after, output_path, output_url, error, created_at, title, is_public",
+        "id, match_id, user_id, status, clip_before, clip_after, output_path, output_url, error, created_at, title, is_public, show_on_explore",
       )
       .eq("match_id", matchId)
       .order("created_at", { ascending: false });
@@ -186,9 +187,17 @@ export function HighlightReelPanel({
       setIsTogglingId(reelJobId);
       setError(null);
 
+      // If making private, also unset show_on_explore
+      const updates: { is_public: boolean; show_on_explore?: boolean } = {
+        is_public: !currentlyPublic,
+      };
+      if (currentlyPublic) {
+        updates.show_on_explore = false;
+      }
+
       const { error: updateErr } = await supabase
         .from("reel_jobs")
-        .update({ is_public: !currentlyPublic })
+        .update(updates)
         .eq("id", reelJobId);
 
       if (updateErr) throw updateErr;
@@ -196,12 +205,50 @@ export function HighlightReelPanel({
       // Update local state immediately
       setReels((prev) =>
         prev.map((r) =>
-          r.id === reelJobId ? { ...r, is_public: !currentlyPublic } : r,
+          r.id === reelJobId
+            ? {
+                ...r,
+                is_public: !currentlyPublic,
+                ...(currentlyPublic ? { show_on_explore: false } : {}),
+              }
+            : r,
         ),
       );
     } catch (e) {
       console.error(e);
       setError(e instanceof Error ? e.message : "Failed to update privacy");
+    } finally {
+      setIsTogglingId(null);
+    }
+  };
+
+  const toggleExplore = async (
+    reelJobId: string,
+    currentlyOnExplore: boolean,
+  ) => {
+    try {
+      setIsTogglingId(reelJobId);
+      setError(null);
+
+      const { error: updateErr } = await supabase
+        .from("reel_jobs")
+        .update({ show_on_explore: !currentlyOnExplore })
+        .eq("id", reelJobId);
+
+      if (updateErr) throw updateErr;
+
+      setReels((prev) =>
+        prev.map((r) =>
+          r.id === reelJobId
+            ? { ...r, show_on_explore: !currentlyOnExplore }
+            : r,
+        ),
+      );
+    } catch (e) {
+      console.error(e);
+      setError(
+        e instanceof Error ? e.message : "Failed to update explore visibility",
+      );
     } finally {
       setIsTogglingId(null);
     }
@@ -302,23 +349,30 @@ export function HighlightReelPanel({
                         </span>
                       </span>
                       {isCompleted && (
-                        <span
-                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                            r.is_public
-                              ? "bg-green-100 text-green-700"
-                              : "bg-gray-100 text-gray-600"
-                          }`}
-                        >
-                          {r.is_public ? (
-                            <>
-                              <Eye className="w-3 h-3" /> Public
-                            </>
-                          ) : (
-                            <>
-                              <EyeOff className="w-3 h-3" /> Private
-                            </>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                              r.is_public
+                                ? "bg-green-100 text-green-700"
+                                : "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {r.is_public ? (
+                              <>
+                                <Eye className="w-3 h-3" /> Public
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3 h-3" /> Private
+                              </>
+                            )}
+                          </span>
+                          {r.is_public && r.show_on_explore && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700">
+                              <Globe className="w-3 h-3" /> Explore
+                            </span>
                           )}
-                        </span>
+                        </div>
                       )}
                     </div>
                     {r.status === "failed" && r.error && (
@@ -328,35 +382,64 @@ export function HighlightReelPanel({
 
                   <div className="flex items-center gap-1">
                     {isCompleted && (
-                      <Button
-                        variant="outline"
-                        className={`border-gray-300 ${
-                          r.is_public
-                            ? "text-green-600 hover:text-green-700"
-                            : "text-gray-500 hover:text-gray-700"
-                        }`}
-                        disabled={isTogglingId === r.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          togglePrivacy(r.id, r.is_public);
-                        }}
-                        aria-label={
-                          r.is_public ? "Make private" : "Make public"
-                        }
-                        title={
-                          r.is_public
-                            ? "Public — visible to everyone. Click to make private."
-                            : "Private — only you can see this. Click to make public."
-                        }
-                      >
-                        {isTogglingId === r.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : r.is_public ? (
-                          <Eye className="w-4 h-4" />
-                        ) : (
-                          <EyeOff className="w-4 h-4" />
-                        )}
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          className={`border-gray-300 ${
+                            r.is_public
+                              ? "text-green-600 hover:text-green-700"
+                              : "text-gray-500 hover:text-gray-700"
+                          }`}
+                          disabled={isTogglingId === r.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePrivacy(r.id, r.is_public);
+                          }}
+                          aria-label={
+                            r.is_public ? "Make private" : "Make public"
+                          }
+                          title={
+                            r.is_public
+                              ? "Public on profile. Click to make private."
+                              : "Private — only you can see this. Click to make public."
+                          }
+                        >
+                          {isTogglingId === r.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : r.is_public ? (
+                            <Eye className="w-4 h-4" />
+                          ) : (
+                            <EyeOff className="w-4 h-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className={`border-gray-300 ${
+                            r.show_on_explore
+                              ? "text-blue-600 hover:text-blue-700"
+                              : "text-gray-400 hover:text-gray-600"
+                          }`}
+                          disabled={isTogglingId === r.id || !r.is_public}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleExplore(r.id, r.show_on_explore);
+                          }}
+                          aria-label={
+                            r.show_on_explore
+                              ? "Remove from Explore"
+                              : "Show on Explore"
+                          }
+                          title={
+                            !r.is_public
+                              ? "Make the reel public first to show on Explore."
+                              : r.show_on_explore
+                                ? "Visible on Explore page. Click to remove."
+                                : "Not on Explore. Click to feature on the Explore page."
+                          }
+                        >
+                          <Globe className="w-4 h-4" />
+                        </Button>
+                      </>
                     )}
                     <Button
                       variant="outline"

@@ -74,6 +74,7 @@ export default function ExplorePage() {
       .select("id, title, output_url, created_at, user_id")
       .eq("status", "complete")
       .eq("is_public", true)
+      .eq("show_on_explore", true)
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
 
