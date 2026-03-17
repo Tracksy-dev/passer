@@ -11,6 +11,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { CheckCircle2, AlertCircle, X } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 const ALLOWED_FORMATS = [".mp4", ".mov", ".avi"];
@@ -18,6 +19,7 @@ const ALLOWED_MIME_TYPES = ["video/mp4", "video/quicktime", "video/x-msvideo"];
 
 export default function UploadPage() {
   const router = useRouter();
+  const prefersReducedMotion = useReducedMotion();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -34,7 +36,7 @@ export default function UploadPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const { data, error } = await supabase.auth.getSession();
+      const { error } = await supabase.auth.getSession();
 
       if (error) {
         console.error("Supabase session error:", error);
@@ -322,7 +324,10 @@ export default function UploadPage() {
           )}
 
           {/* Upload Area */}
-          <div
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            transition={prefersReducedMotion ? undefined : { duration: 0.32 }}
             className={`bg-white rounded-lg border-2 border-dashed p-8 md:p-12 lg:p-16 transition-colors ${
               isDragging ? "border-[#0047AB] bg-blue-50" : "border-gray-300"
             }`}
@@ -398,11 +403,16 @@ export default function UploadPage() {
                 Supported formats: .mp4, .mov, .avi (Max: 500MB)
               </p>
             </div>
-          </div>
+          </motion.div>
 
           {/* Progress Bar - Shows during file upload */}
           {isUploading && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <motion.div
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+              animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+              transition={prefersReducedMotion ? undefined : { duration: 0.24 }}
+              className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+            >
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-900">
@@ -413,9 +423,15 @@ export default function UploadPage() {
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div
+                  <motion.div
                     className="bg-[#0047AB] h-3 rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
+                    initial={prefersReducedMotion ? false : { width: 0 }}
+                    animate={{ width: `${uploadProgress}%` }}
+                    transition={
+                      prefersReducedMotion
+                        ? undefined
+                        : { duration: 0.35, ease: [0.22, 1, 0.36, 1] }
+                    }
                   />
                 </div>
                 <div className="flex items-center justify-between">
@@ -431,13 +447,18 @@ export default function UploadPage() {
                   </Button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* Match Details Form */}
-          <form
+          <motion.form
             onSubmit={handleSubmit}
             className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 md:p-8"
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            transition={
+              prefersReducedMotion ? undefined : { duration: 0.32, delay: 0.06 }
+            }
           >
             <div className="grid md:grid-cols-2 gap-4 md:gap-6">
               {/* Team Name */}
@@ -498,7 +519,7 @@ export default function UploadPage() {
             >
               {isUploading ? "Uploading..." : "Submit"}
             </Button>
-          </form>
+          </motion.form>
         </div>
       </main>
 

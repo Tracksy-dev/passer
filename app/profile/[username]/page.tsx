@@ -152,7 +152,7 @@ export default async function PublicProfilePage({
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SiteHeader showNav={false} />
+      <SiteHeader showNav={true} activePage="profile" />
 
       <main className="flex-1">
         <div className="max-w-4xl mx-auto px-4 md:px-6 pt-8 md:pt-10 pb-6">

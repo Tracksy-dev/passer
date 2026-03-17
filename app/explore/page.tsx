@@ -21,6 +21,7 @@ import {
   VolumeX,
   Search,
 } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 
 const PAGE_SIZE = 12;
 
@@ -50,6 +51,7 @@ type SearchResult = {
 
 export default function ExplorePage() {
   const router = useRouter();
+  const prefersReducedMotion = useReducedMotion();
 
   const [authed, setAuthed] = useState(false);
   const [reels, setReels] = useState<ExploreReel[]>([]);
@@ -214,7 +216,12 @@ export default function ExplorePage() {
 
       <main className="flex-1">
         {/* Page header */}
-        <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pt-8 md:pt-10 pb-4 md:pb-6">
+        <motion.div
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 18 }}
+          animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+          transition={prefersReducedMotion ? undefined : { duration: 0.32 }}
+          className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pt-8 md:pt-10 pb-4 md:pb-6"
+        >
           <div className="flex items-center gap-3">
             <Compass className="w-7 h-7 text-[#0047AB]" />
             <div>
@@ -265,50 +272,72 @@ export default function ExplorePage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {searchResults.map((user) => (
-                      <Link
+                    {searchResults.map((user, idx) => (
+                      <motion.div
                         key={user.id}
-                        href={`/profile/${user.username}`}
-                        className="flex items-center gap-3 p-3 border border-gray-200 rounded-xl hover:shadow-md transition-shadow bg-white"
+                        initial={
+                          prefersReducedMotion ? false : { opacity: 0, y: 12 }
+                        }
+                        animate={
+                          prefersReducedMotion
+                            ? undefined
+                            : { opacity: 1, y: 0 }
+                        }
+                        transition={
+                          prefersReducedMotion
+                            ? undefined
+                            : {
+                                duration: 0.25,
+                                delay: Math.min(idx * 0.04, 0.2),
+                              }
+                        }
+                        whileHover={
+                          prefersReducedMotion ? undefined : { y: -2 }
+                        }
                       >
-                        <div className="w-12 h-12 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                          {user.avatar_url ? (
-                            <Image
-                              src={user.avatar_url}
-                              alt={user.display_name || user.username}
-                              width={48}
-                              height={48}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <span className="text-gray-400 text-sm font-medium">
-                              {(user.display_name || user.username)
-                                .charAt(0)
-                                .toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 truncate">
-                            {user.username}
-                          </p>
-                          <p className="text-xs text-gray-500 truncate">
-                            {user.display_name}
-                            {user.team ? ` · ${user.team}` : ""}
-                          </p>
-                          <div className="flex items-center gap-3 mt-0.5 text-[11px] text-gray-400">
-                            <span>{user.public_reels} reels</span>
-                            <span>{user.followers} followers</span>
+                        <Link
+                          href={`/profile/${user.username}`}
+                          className="flex items-center gap-3 p-3 border border-gray-200 rounded-xl hover:shadow-md transition-shadow bg-white"
+                        >
+                          <div className="w-12 h-12 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex-shrink-0 flex items-center justify-center">
+                            {user.avatar_url ? (
+                              <Image
+                                src={user.avatar_url}
+                                alt={user.display_name || user.username}
+                                width={48}
+                                height={48}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-gray-400 text-sm font-medium">
+                                {(user.display_name || user.username)
+                                  .charAt(0)
+                                  .toUpperCase()}
+                              </span>
+                            )}
                           </div>
-                        </div>
-                      </Link>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                              {user.username}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {user.display_name}
+                              {user.team ? ` · ${user.team}` : ""}
+                            </p>
+                            <div className="flex items-center gap-3 mt-0.5 text-[11px] text-gray-400">
+                              <span>{user.public_reels} reels</span>
+                              <span>{user.followers} followers</span>
+                            </div>
+                          </div>
+                        </Link>
+                      </motion.div>
                     ))}
                   </div>
                 )}
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
 
         <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pb-12">
           {reels.length === 0 ? (
@@ -340,6 +369,7 @@ export default function ExplorePage() {
                   <ReelCard
                     key={reel.id}
                     reel={reel}
+                    index={idx}
                     onClick={() => openFeed(idx)}
                   />
                 ))}
@@ -380,15 +410,28 @@ export default function ExplorePage() {
 
 function ReelCard({
   reel,
+  index,
   onClick,
 }: {
   reel: ExploreReel;
+  index: number;
   onClick: () => void;
 }) {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
-    <button
+    <motion.button
       onClick={onClick}
       className="group relative rounded-xl overflow-hidden border border-gray-200 bg-white hover:shadow-md transition-shadow text-left w-full"
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 18 }}
+      animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={
+        prefersReducedMotion
+          ? undefined
+          : { duration: 0.28, delay: Math.min(index * 0.035, 0.3) }
+      }
+      whileHover={prefersReducedMotion ? undefined : { y: -4 }}
+      whileTap={prefersReducedMotion ? undefined : { scale: 0.99 }}
     >
       {/* Thumbnail — 9:16 aspect on mobile, 9:16 everywhere for TikTok feel */}
       <div className="aspect-[9/16] bg-gray-100 relative overflow-hidden">
@@ -429,7 +472,7 @@ function ReelCard({
           </p>
         </div>
       </div>
-    </button>
+    </motion.button>
   );
 }
 

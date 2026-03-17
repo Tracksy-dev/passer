@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Compass, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
+import { motion, useReducedMotion } from "framer-motion";
 
 interface SiteHeaderProps {
   showNav?: boolean;
@@ -13,7 +13,7 @@ interface SiteHeaderProps {
 }
 
 export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
-  const router = useRouter();
+  const prefersReducedMotion = useReducedMotion();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -21,7 +21,16 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
   };
 
   return (
-    <header className="bg-[#0047AB] px-4 md:px-6 lg:px-8 py-3 md:py-4">
+    <motion.header
+      initial={prefersReducedMotion ? false : { opacity: 0, y: -12 }}
+      animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={
+        prefersReducedMotion
+          ? undefined
+          : { duration: 0.3, ease: [0.22, 1, 0.36, 1] }
+      }
+      className="bg-[#0047AB] px-4 md:px-6 lg:px-8 py-3 md:py-4"
+    >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 md:gap-4">
         {showNav ? (
           <Link href="/dashboard">
@@ -34,7 +43,16 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
         )}
 
         {showNav && (
-          <nav className="flex items-center justify-end gap-2 md:gap-3 lg:gap-7 flex-wrap">
+          <motion.nav
+            initial={prefersReducedMotion ? false : { opacity: 0, y: -6 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            transition={
+              prefersReducedMotion
+                ? undefined
+                : { duration: 0.25, delay: 0.05, ease: [0.22, 1, 0.36, 1] }
+            }
+            className="flex items-center justify-end gap-2 md:gap-3 lg:gap-7 flex-wrap"
+          >
             <Link
               href="/dashboard"
               className={`text-sm md:text-[15px] ${
@@ -43,7 +61,13 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
                   : "text-white hover:text-gray-200"
               }`}
             >
-              Dashboard
+              <motion.span
+                whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+                transition={{ type: "spring", stiffness: 320, damping: 24 }}
+                className="inline-block"
+              >
+                Dashboard
+              </motion.span>
             </Link>
             <Link
               href="/explore"
@@ -53,10 +77,14 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
                   : "text-white hover:text-gray-200"
               }`}
             >
-              <span className="flex items-center gap-1.5">
+              <motion.span
+                whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+                transition={{ type: "spring", stiffness: 320, damping: 24 }}
+                className="flex items-center gap-1.5"
+              >
                 <Compass className="w-4 h-4" />
                 Explore
-              </span>
+              </motion.span>
             </Link>
             <Link
               href="/upload-page"
@@ -66,7 +94,13 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
                   : "text-white hover:text-gray-200"
               }`}
             >
-              Upload Video
+              <motion.span
+                whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+                transition={{ type: "spring", stiffness: 320, damping: 24 }}
+                className="inline-block"
+              >
+                Upload Video
+              </motion.span>
             </Link>
             <Link
               href="/profile"
@@ -76,7 +110,13 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
                   : "text-white hover:text-gray-200"
               }`}
             >
-              Profile
+              <motion.span
+                whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+                transition={{ type: "spring", stiffness: 320, damping: 24 }}
+                className="inline-block"
+              >
+                Profile
+              </motion.span>
             </Link>
             <Button
               variant="outline"
@@ -86,9 +126,9 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
               <LogOut className="w-4 h-4 mr-2" />
               Logout
             </Button>
-          </nav>
+          </motion.nav>
         )}
       </div>
-    </header>
+    </motion.header>
   );
 }

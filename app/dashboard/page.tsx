@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Search, Trash2 } from "lucide-react";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
+import { motion, useReducedMotion } from "framer-motion";
 
 interface Match {
   id: string;
@@ -24,6 +25,7 @@ interface Match {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const prefersReducedMotion = useReducedMotion();
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -172,7 +174,12 @@ export default function DashboardPage() {
       <main className="flex-1 bg-gray-50 px-4 md:px-6 lg:px-8 py-6 md:py-8">
         <div className="max-w-7xl mx-auto space-y-6 md:space-y-8">
           {/* Search and Filter Section */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 md:p-6">
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            transition={prefersReducedMotion ? undefined : { duration: 0.3 }}
+            className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 md:p-6"
+          >
             <div className="grid md:grid-cols-2 gap-4 md:gap-6">
               {/* Search */}
               <div className="space-y-2">
@@ -204,7 +211,7 @@ export default function DashboardPage() {
                 />
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Loading State */}
           {loading && (
@@ -245,86 +252,125 @@ export default function DashboardPage() {
 
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                 {/* Demo Match Cards */}
-                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
-                      DEMO
-                    </span>
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      DkIT VC vs St. Mary&apos;s College
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Date: November 1, 2023
-                    </p>
-                    <p className="text-sm text-gray-700 leading-relaxed">
-                      3-0 Victory • 95% Analysis Confidence
-                    </p>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Button
-                      onClick={() => router.push("/match/1/set/1")}
-                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
-                    >
-                      View Report
-                    </Button>
-                  </div>
-                </Card>
+                <motion.div
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+                  animate={
+                    prefersReducedMotion ? undefined : { opacity: 1, y: 0 }
+                  }
+                  transition={
+                    prefersReducedMotion
+                      ? undefined
+                      : { duration: 0.28, delay: 0.04 }
+                  }
+                  whileHover={prefersReducedMotion ? undefined : { y: -4 }}
+                >
+                  <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                        DEMO
+                      </span>
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        DkIT VC vs St. Mary&apos;s College
+                      </h3>
+                      <p className="text-sm text-gray-600">
+                        Date: November 1, 2023
+                      </p>
+                      <p className="text-sm text-gray-700 leading-relaxed">
+                        3-0 Victory • 95% Analysis Confidence
+                      </p>
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        onClick={() => router.push("/match/1/set/1")}
+                        className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
+                      >
+                        View Report
+                      </Button>
+                    </div>
+                  </Card>
+                </motion.div>
 
-                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
-                      DEMO
-                    </span>
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      DkIT VC vs Trinity College Dublin
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Date: November 2, 2023
-                    </p>
-                    <p className="text-sm text-gray-700 leading-relaxed">
-                      3-2 Victory • 91% Analysis Confidence
-                    </p>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Button
-                      onClick={() => router.push("/match/2/set/1")}
-                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
-                    >
-                      View Report
-                    </Button>
-                  </div>
-                </Card>
+                <motion.div
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+                  animate={
+                    prefersReducedMotion ? undefined : { opacity: 1, y: 0 }
+                  }
+                  transition={
+                    prefersReducedMotion
+                      ? undefined
+                      : { duration: 0.28, delay: 0.08 }
+                  }
+                  whileHover={prefersReducedMotion ? undefined : { y: -4 }}
+                >
+                  <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                        DEMO
+                      </span>
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        DkIT VC vs Trinity College Dublin
+                      </h3>
+                      <p className="text-sm text-gray-600">
+                        Date: November 2, 2023
+                      </p>
+                      <p className="text-sm text-gray-700 leading-relaxed">
+                        3-2 Victory • 91% Analysis Confidence
+                      </p>
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        onClick={() => router.push("/match/2/set/1")}
+                        className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
+                      >
+                        View Report
+                      </Button>
+                    </div>
+                  </Card>
+                </motion.div>
 
-                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
-                      DEMO
-                    </span>
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      DkIT VC vs UCD
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Date: November 3, 2023
-                    </p>
-                    <p className="text-sm text-gray-700 leading-relaxed">
-                      3-0 Victory • 97% Analysis Confidence
-                    </p>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Button
-                      onClick={() => router.push("/match/3/set/1")}
-                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
-                    >
-                      View Report
-                    </Button>
-                  </div>
-                </Card>
+                <motion.div
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+                  animate={
+                    prefersReducedMotion ? undefined : { opacity: 1, y: 0 }
+                  }
+                  transition={
+                    prefersReducedMotion
+                      ? undefined
+                      : { duration: 0.28, delay: 0.12 }
+                  }
+                  whileHover={prefersReducedMotion ? undefined : { y: -4 }}
+                >
+                  <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                        DEMO
+                      </span>
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        DkIT VC vs UCD
+                      </h3>
+                      <p className="text-sm text-gray-600">
+                        Date: November 3, 2023
+                      </p>
+                      <p className="text-sm text-gray-700 leading-relaxed">
+                        3-0 Victory • 97% Analysis Confidence
+                      </p>
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        onClick={() => router.push("/match/3/set/1")}
+                        className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
+                      >
+                        View Report
+                      </Button>
+                    </div>
+                  </Card>
+                </motion.div>
               </div>
             </>
           )}
@@ -338,44 +384,60 @@ export default function DashboardPage() {
                 </h2>
               </div>
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredMatches.map((match) => (
-                  <Card
+                {filteredMatches.map((match, idx) => (
+                  <motion.div
                     key={match.id}
-                    className="p-6 shadow-sm border-gray-200 flex flex-col"
+                    initial={
+                      prefersReducedMotion ? false : { opacity: 0, y: 18 }
+                    }
+                    animate={
+                      prefersReducedMotion ? undefined : { opacity: 1, y: 0 }
+                    }
+                    transition={
+                      prefersReducedMotion
+                        ? undefined
+                        : { duration: 0.28, delay: Math.min(idx * 0.04, 0.28) }
+                    }
+                    whileHover={prefersReducedMotion ? undefined : { y: -4 }}
                   >
-                    <div className="flex-1 space-y-3">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {match.team_name || "DkIT VC"} vs {match.opponent}
-                      </h3>
-                      <p className="text-sm text-gray-600">
-                        Date: {new Date(match.match_date).toLocaleDateString()}
-                      </p>
-                      <p className="text-sm text-gray-700 leading-relaxed">
-                        Match video uploaded on{" "}
-                        {new Date(match.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 mt-4">
-                      <Button
-                        onClick={() => router.push(`/match/${match.id}/set/1`)}
-                        className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
-                      >
-                        View Report
-                      </Button>
-                      <Button
-                        onClick={() => handleDeleteMatch(match)}
-                        disabled={deletingMatchId === match.id}
-                        variant="outline"
-                        className="h-11 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 disabled:opacity-50"
-                      >
-                        {deletingMatchId === match.id ? (
-                          <span className="text-xs">Deleting...</span>
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </Card>
+                    <Card className="p-6 shadow-sm border-gray-200 flex flex-col">
+                      <div className="flex-1 space-y-3">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {match.team_name || "DkIT VC"} vs {match.opponent}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Date:{" "}
+                          {new Date(match.match_date).toLocaleDateString()}
+                        </p>
+                        <p className="text-sm text-gray-700 leading-relaxed">
+                          Match video uploaded on{" "}
+                          {new Date(match.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 mt-4">
+                        <Button
+                          onClick={() =>
+                            router.push(`/match/${match.id}/set/1`)
+                          }
+                          className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
+                        >
+                          View Report
+                        </Button>
+                        <Button
+                          onClick={() => handleDeleteMatch(match)}
+                          disabled={deletingMatchId === match.id}
+                          variant="outline"
+                          className="h-11 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 disabled:opacity-50"
+                        >
+                          {deletingMatchId === match.id ? (
+                            <span className="text-xs">Deleting...</span>
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </Card>
+                  </motion.div>
                 ))}
               </div>
             </>
