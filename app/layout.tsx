@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Sora, Space_Mono } from "next/font/google";
 import "./globals.css";
 import { PageTransition } from "@/components/ui/page-transition";
+import { Toaster } from "sonner";
 
 const sora = Sora({
   variable: "--font-sora",
@@ -33,6 +34,18 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <PageTransition>{children}</PageTransition>
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: "rgba(255, 255, 255, 0.85)",
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(255, 255, 255, 0.7)",
+              boxShadow: "0 18px 45px -34px rgba(0, 37, 92, 0.92)",
+            },
+          }}
+          richColors
+        />
       </body>
     </html>
   );

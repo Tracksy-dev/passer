@@ -133,46 +133,52 @@
     font-family: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
     min-height: 100vh;
     position: relative;
-    background-image:
-      radial-gradient(
-        circle at 0% 0%,
-        rgba(110, 181, 255, 0.28) 0%,
-        transparent 48%
-      ),
-      radial-gradient(
-        circle at 100% 8%,
-        rgba(232, 165, 80, 0.24) 0%,
-        transparent 44%
-      ),
-      linear-gradient(180deg, #f7fbff 0%, #eef4ff 45%, #f6fbff 100%);
+    background-color: #f0f6ff;
     background-attachment: fixed;
   }
 
+  /* Animated mesh gradient blobs */
   body::before {
     content: "";
     position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(0, 71, 171, 0.08) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 71, 171, 0.08) 1px, transparent 1px);
-    background-size: 34px 34px;
-    opacity: 0.24;
+    inset: -50%;
+    width: 200%;
+    height: 200%;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(110, 181, 255, 0.35) 0%, transparent 50%),
+      radial-gradient(circle at 80% 10%, rgba(232, 165, 80, 0.28) 0%, transparent 45%),
+      radial-gradient(circle at 50% 80%, rgba(27, 124, 255, 0.22) 0%, transparent 50%),
+      radial-gradient(circle at 10% 70%, rgba(232, 165, 80, 0.18) 0%, transparent 40%),
+      radial-gradient(circle at 90% 60%, rgba(110, 181, 255, 0.2) 0%, transparent 45%);
+    animation: mesh-drift 20s ease-in-out infinite alternate;
     pointer-events: none;
-    z-index: -2;
+    z-index: -3;
   }
 
+  /* Subtle dot grid overlay */
   body::after {
     content: "";
     position: fixed;
     inset: 0;
-    background: radial-gradient(
-      circle at 50% 120%,
-      rgba(22, 114, 255, 0.18),
-      transparent 60%
-    );
-    filter: blur(8px);
+    background-image:
+      radial-gradient(circle, rgba(0, 71, 171, 0.12) 1px, transparent 1px);
+    background-size: 28px 28px;
+    opacity: 0.4;
     pointer-events: none;
-    z-index: -1;
+    z-index: -2;
+    animation: grid-fade 8s ease-in-out infinite alternate;
+  }
+
+  @keyframes mesh-drift {
+    0% { transform: translate(0%, 0%) rotate(0deg); }
+    33% { transform: translate(2%, -3%) rotate(1deg); }
+    66% { transform: translate(-2%, 2%) rotate(-0.5deg); }
+    100% { transform: translate(1%, -1%) rotate(0.5deg); }
+  }
+
+  @keyframes grid-fade {
+    0% { opacity: 0.3; }
+    100% { opacity: 0.5; }
   }
 
   h1,
@@ -208,4 +214,103 @@
       0 12px 28px -20px rgba(0, 71, 171, 0.65),
       0 -8px 20px -18px rgba(232, 165, 80, 0.8);
   }
+
+  /* Animated gradient text */
+  .gradient-text-animated {
+    background: linear-gradient(
+      120deg,
+      #0047AB 0%,
+      #1B7CFF 25%,
+      #E8A550 50%,
+      #1B7CFF 75%,
+      #0047AB 100%
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: gradient-shift 4s ease-in-out infinite;
+  }
+
+  @keyframes gradient-shift {
+    0%, 100% { background-position: 0% center; }
+    50% { background-position: 100% center; }
+  }
+
+  /* Animated border gradient on hover */
+  .hover-border-glow {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hover-border-glow::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: linear-gradient(135deg, #0047AB, #1B7CFF, #E8A550, #1B7CFF, #0047AB);
+    background-size: 300% 300%;
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    animation: border-sweep 3s linear infinite;
+    pointer-events: none;
+  }
+
+  .hover-border-glow:hover::before {
+    opacity: 1;
+  }
+
+  @keyframes border-sweep {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply rounded-xl bg-gradient-to-r from-[#e8f2ff] via-[#f0f6ff] to-[#e8f2ff];
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Floating ambient glow for special sections */
+  .ambient-glow {
+    position: relative;
+  }
+
+  .ambient-glow::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(0, 71, 171, 0.15), rgba(27, 124, 255, 0.1), rgba(232, 165, 80, 0.12));
+    filter: blur(20px);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .ambient-glow:hover::after {
+    opacity: 1;
+  }
+}
+
+/* Toaster overrides to match design system */
+[data-sonner-toaster] [data-sonner-toast] {
+  font-family: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+  border-radius: 1rem;
+  border-color: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
 }

@@ -31,7 +31,7 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
       }
       className="sticky top-0 z-50 px-4 md:px-6 lg:px-8 pt-3 md:pt-4"
     >
-      <div className="max-w-7xl mx-auto glass-surface aurora-border px-4 py-3 md:px-5 md:py-3.5">
+      <div className="max-w-7xl mx-auto glass-surface aurora-border hover-border-glow px-4 py-3 md:px-5 md:py-3.5">
         <div className="flex items-center justify-between gap-3 md:gap-4">
           {showNav ? (
             <Link href="/dashboard">

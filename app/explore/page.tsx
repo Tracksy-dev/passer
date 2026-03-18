@@ -188,8 +188,24 @@ export default function ExplorePage() {
     return (
       <div className="min-h-screen flex flex-col">
         <SiteHeader showNav={true} activePage="explore" />
-        <main className="page-shell flex-1 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+        <main className="page-shell flex-1">
+          <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pt-10 pb-12">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="skeleton w-7 h-7 rounded-full" />
+              <div className="space-y-2">
+                <div className="skeleton h-6 w-32" />
+                <div className="skeleton h-4 w-64" />
+              </div>
+            </div>
+            <div className="skeleton h-12 w-full rounded-2xl mb-8" />
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="rounded-2xl overflow-hidden border border-white/70 bg-white/50">
+                  <div className="skeleton aspect-[9/16]" />
+                </div>
+              ))}
+            </div>
+          </div>
         </main>
         <SiteFooter />
       </div>
@@ -297,7 +313,7 @@ export default function ExplorePage() {
                       >
                         <Link
                           href={`/profile/${user.username}`}
-                          className="flex items-center gap-3 p-3 border border-white/75 rounded-xl hover:shadow-md transition-shadow bg-white/76 backdrop-blur-md"
+                          className="flex items-center gap-3 p-3 border border-white/75 rounded-xl hover:shadow-md transition-shadow bg-white/76 backdrop-blur-md hover-border-glow"
                         >
                           <div className="w-12 h-12 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex-shrink-0 flex items-center justify-center">
                             {user.avatar_url ? (
@@ -419,16 +435,17 @@ function ReelCard({
   return (
     <motion.button
       onClick={onClick}
-      className="group relative rounded-2xl overflow-hidden border border-white/75 bg-white/75 backdrop-blur-lg hover:shadow-[0_20px_38px_-24px_rgba(0,71,171,0.95)] transition-shadow text-left w-full"
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 18 }}
-      animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      className="group relative rounded-2xl overflow-hidden border border-white/75 bg-white/75 backdrop-blur-lg hover:shadow-[0_20px_38px_-24px_rgba(0,71,171,0.95)] transition-shadow text-left w-full hover-border-glow"
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
+      whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.15 }}
       transition={
         prefersReducedMotion
           ? undefined
-          : { duration: 0.28, delay: Math.min(index * 0.035, 0.3) }
+          : { duration: 0.35, delay: Math.min(index * 0.05, 0.3), ease: [0.22, 1, 0.36, 1] }
       }
-      whileHover={prefersReducedMotion ? undefined : { y: -4 }}
-      whileTap={prefersReducedMotion ? undefined : { scale: 0.99 }}
+      whileHover={prefersReducedMotion ? undefined : { y: -6, scale: 1.02 }}
+      whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
     >
       {/* Thumbnail — 9:16 aspect on mobile, 9:16 everywhere for TikTok feel */}
       <div className="aspect-[9/16] bg-[#dce7f6] relative overflow-hidden">

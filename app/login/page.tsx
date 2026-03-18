@@ -10,10 +10,19 @@ import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { PasserIcon } from "@/components/ui/passer-icon";
 import { supabase } from "@/lib/supabase";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { motion } from "framer-motion";
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirectTo") || "/dashboard";
   const [email, setEmail] = useState("");
@@ -60,7 +69,7 @@ export default function LoginPage() {
                 Intelligent Recruiting Workflow
               </span>
               <div className="space-y-3">
-                <h1 className="text-4xl xl:text-5xl font-semibold text-[#0a3d7d] text-balance">
+                <h1 className="text-4xl xl:text-5xl font-semibold text-balance gradient-text-animated">
                   Turn raw matches into recruiting-ready proof.
                 </h1>
                 <p className="text-base text-[#1f4f88]/90 leading-relaxed max-w-xl">
@@ -70,19 +79,29 @@ export default function LoginPage() {
                 </p>
               </div>
               <div className="grid gap-3">
-                <div className="flex items-center gap-3 rounded-xl border border-[#0047AB]/15 bg-white/60 p-3">
+                <motion.div
+                  initial={{ opacity: 0, x: -16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.4, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex items-center gap-3 rounded-xl border border-[#0047AB]/15 bg-white/60 p-3 hover-border-glow"
+                >
                   <Radar className="w-4 h-4 text-[#0b57b5]" />
                   <p className="text-sm text-[#163f73]">
                     Explore player reels and performance trends in one place.
                   </p>
-                </div>
-                <div className="flex items-center gap-3 rounded-xl border border-[#0047AB]/15 bg-white/60 p-3">
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, x: -16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.4, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex items-center gap-3 rounded-xl border border-[#0047AB]/15 bg-white/60 p-3 hover-border-glow"
+                >
                   <ShieldCheck className="w-4 h-4 text-[#0b57b5]" />
                   <p className="text-sm text-[#163f73]">
                     Authenticated profiles and secure video ownership with
                     Supabase.
                   </p>
-                </div>
+                </motion.div>
               </div>
             </div>
           </section>

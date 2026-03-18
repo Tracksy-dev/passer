@@ -18,7 +18,7 @@ export function SiteFooter() {
       }
       className="px-4 md:px-6 lg:px-8 pb-5 md:pb-6 mt-8"
     >
-      <div className="max-w-7xl mx-auto rounded-2xl border border-[#0a3c79]/20 bg-[linear-gradient(135deg,#083b7f_0%,#0a4d9f_52%,#115fbd_100%)] px-5 py-5 md:px-7 md:py-6 shadow-[0_18px_40px_-30px_rgba(2,24,58,0.95)] flex flex-col md:flex-row items-center justify-between gap-4 md:gap-5">
+      <div className="max-w-7xl mx-auto rounded-2xl border border-[#0a3c79]/20 bg-[linear-gradient(135deg,#083b7f_0%,#0a4d9f_52%,#115fbd_100%)] px-5 py-5 md:px-7 md:py-6 shadow-[0_18px_40px_-30px_rgba(2,24,58,0.95)] flex flex-col md:flex-row items-center justify-between gap-4 md:gap-5 hover-border-glow">
         <motion.div
           initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
           animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}

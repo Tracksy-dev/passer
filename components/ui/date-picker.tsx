@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Calendar as CalendarIcon, ChevronDown, X } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,8 @@ export function DatePicker({
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
   const [month, setMonth] = React.useState<Date>(new Date());
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const [dropdownPos, setDropdownPos] = React.useState({ top: 0, left: 0 });
 
   const parseIsoDate = React.useCallback((iso: string): Date | undefined => {
     if (!iso) return undefined;
@@ -101,8 +104,18 @@ export function DatePicker({
       )}
 
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          if (!open && triggerRef.current) {
+            const rect = triggerRef.current.getBoundingClientRect();
+            setDropdownPos({
+              top: rect.bottom + window.scrollY + 8,
+              left: rect.left + window.scrollX,
+            });
+          }
+          setOpen((prev) => !prev);
+        }}
         className={cn(
           "h-11 w-full rounded-lg border border-[#c7daf4] bg-white/78 pr-10 text-left text-sm shadow-sm backdrop-blur-md transition-colors",
           "hover:border-[#69a3e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B7CFF]/30",
@@ -133,8 +146,11 @@ export function DatePicker({
         )}
       />
 
-      {open ? (
-        <div className="absolute left-0 top-[calc(100%+0.5rem)] z-50 w-[21rem] max-w-[calc(100vw-2rem)] rounded-2xl border border-[#9fc1e8] bg-white/95 p-3 shadow-[0_24px_50px_-28px_rgba(0,71,171,0.95)] backdrop-blur-xl">
+      {open ? createPortal(
+        <div
+          style={{ position: "absolute", top: dropdownPos.top, left: dropdownPos.left }}
+          className="z-[9999] w-[21rem] max-w-[calc(100vw-2rem)] rounded-2xl border border-[#9fc1e8] bg-white p-3 shadow-[0_24px_50px_-28px_rgba(0,71,171,0.95)]"
+        >
           <DayPicker
             mode="single"
             required={required}
@@ -198,7 +214,8 @@ export function DatePicker({
               <span className="text-xs text-[#8aa4c4]">Required</span>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

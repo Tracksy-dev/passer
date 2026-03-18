@@ -108,7 +108,6 @@ export default function UploadPage() {
     const { data: uploadData, error: urlError } = await supabase.storage
       .from("match-videos")
       .createSignedUploadUrl(fileName, {
-        contentType: file.type,
         upsert: false,
       });
 
@@ -455,11 +454,12 @@ export default function UploadPage() {
           {/* Match Details Form */}
           <motion.form
             onSubmit={handleSubmit}
-            className="glass-surface p-5 md:p-8"
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            className="rounded-2xl border border-white/70 bg-white/90 shadow-[0_20px_50px_-35px_rgba(0,32,92,0.7)] p-5 md:p-8 hover-border-glow"
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
+            whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.1 }}
             transition={
-              prefersReducedMotion ? undefined : { duration: 0.32, delay: 0.06 }
+              prefersReducedMotion ? undefined : { duration: 0.4, delay: 0.06, ease: [0.22, 1, 0.36, 1] }
             }
           >
             <div className="grid md:grid-cols-2 gap-4 md:gap-6">
@@ -494,7 +494,7 @@ export default function UploadPage() {
               </div>
 
               {/* Match Date */}
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-2 md:col-span-2 relative z-20">
                 <label className="text-sm font-medium text-gray-900">
                   Match Date
                 </label>

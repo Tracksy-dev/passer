@@ -18,6 +18,7 @@ import { PasserIcon } from "@/components/ui/passer-icon";
 import { supabase } from "@/lib/supabase";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -110,7 +111,7 @@ export default function SignUpPage() {
             </div>
 
             <div className="space-y-3 text-center md:text-left">
-              <h1 className="text-2xl md:text-4xl font-semibold text-[#0c4388] text-balance">
+              <h1 className="text-2xl md:text-4xl font-semibold text-balance gradient-text-animated">
                 Start analyzing your matches today
               </h1>
               <p className="text-[#315c91] text-base leading-relaxed max-w-md mx-auto md:mx-0">
@@ -125,13 +126,19 @@ export default function SignUpPage() {
                 "Detailed player statistics",
                 "Automated match reports",
                 "Team performance tracking",
-              ].map((feature) => (
-                <div key={feature} className="flex items-center gap-3">
+              ].map((feature, idx) => (
+                <motion.div
+                  key={feature}
+                  initial={{ opacity: 0, x: -16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.35, delay: 0.15 + idx * 0.08, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex items-center gap-3"
+                >
                   <div className="flex-shrink-0 w-5 h-5 rounded-full bg-gradient-to-br from-[#e8a550] to-[#d9861f] flex items-center justify-center shadow-sm">
                     <Check className="w-3 h-3 text-white" strokeWidth={3} />
                   </div>
                   <span className="text-[#123f77] text-[15px]">{feature}</span>
-                </div>
+                </motion.div>
               ))}
             </div>
           </div>

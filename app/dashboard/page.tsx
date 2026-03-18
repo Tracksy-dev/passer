@@ -12,6 +12,7 @@ import { Search, Trash2 } from "lucide-react";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { motion, useReducedMotion } from "framer-motion";
+import { toast } from "sonner";
 
 interface Match {
   id: string;
@@ -139,13 +140,15 @@ export default function DashboardPage() {
         prevMatches.filter((m) => m.id !== matchToDelete.id),
       );
 
+      toast.success("Match deleted successfully.");
+
       // Redirect to upload page if no matches left
       if (matches.length === 1) {
         router.push("/upload-page");
       }
     } catch (error) {
       console.error("Error deleting match:", error);
-      alert("Failed to delete match. Please try again.");
+      toast.error("Failed to delete match. Please try again.");
     } finally {
       setDeletingMatchId(null);
       setMatchToDelete(null);
@@ -213,10 +216,20 @@ export default function DashboardPage() {
             </div>
           </motion.div>
 
-          {/* Loading State */}
+          {/* Skeleton Loading State */}
           {loading && (
-            <div className="text-center py-12">
-              <p className="text-gray-600">Loading matches...</p>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="rounded-2xl border border-white/70 bg-white/50 backdrop-blur-md p-6 space-y-4">
+                  <div className="skeleton h-5 w-3/4" />
+                  <div className="skeleton h-4 w-1/2" />
+                  <div className="skeleton h-4 w-2/3" />
+                  <div className="flex gap-2 mt-4">
+                    <div className="skeleton h-11 flex-1" />
+                    <div className="skeleton h-11 w-12" />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -244,17 +257,18 @@ export default function DashboardPage() {
                   <motion.div
                     key={match.id}
                     initial={
-                      prefersReducedMotion ? false : { opacity: 0, y: 18 }
+                      prefersReducedMotion ? false : { opacity: 0, y: 24 }
                     }
-                    animate={
+                    whileInView={
                       prefersReducedMotion ? undefined : { opacity: 1, y: 0 }
                     }
+                    viewport={{ once: true, amount: 0.15 }}
                     transition={
                       prefersReducedMotion
                         ? undefined
-                        : { duration: 0.28, delay: Math.min(idx * 0.04, 0.28) }
+                        : { duration: 0.35, delay: Math.min(idx * 0.06, 0.3), ease: [0.22, 1, 0.36, 1] }
                     }
-                    whileHover={prefersReducedMotion ? undefined : { y: -4 }}
+                    whileHover={prefersReducedMotion ? undefined : { y: -6, scale: 1.02 }}
                   >
                     <Card className="p-6 border-[#c9dbf3] bg-white/74 flex flex-col">
                       <div className="flex-1 space-y-3">
