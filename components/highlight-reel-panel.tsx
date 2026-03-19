@@ -33,7 +33,7 @@ export function HighlightReelPanel({
   selectedPointIds,
 }: {
   matchId: string;
-  selectedPointIds?: Set<string>;
+  selectedPointIds: Set<string>;
 }) {
   const [reels, setReels] = useState<ReelJobRow[]>([]);
   const [selectedReelId, setSelectedReelId] = useState<string | null>(null);
@@ -105,20 +105,25 @@ export function HighlightReelPanel({
       if (userErr) throw userErr;
       if (!user) throw new Error("You must be logged in.");
 
-      const { count, error: cntErr } = await supabase
+      const pointIds = Array.from(selectedPointIds);
+
+      if (pointIds.length < 1) {
+        throw new Error("Select at least one highlight to generate a reel.");
+      }
+
+      // Guard against stale selections: only keep IDs that still exist on this match.
+      const { data: existingRows, error: pointsErr } = await supabase
         .from("match_points")
-        .select("*", { count: "exact", head: true })
-        .eq("match_id", matchId);
+        .select("id")
+        .eq("match_id", matchId)
+        .in("id", pointIds);
 
-      if (cntErr) throw cntErr;
-      if (!count || count < 1)
-        throw new Error("Add at least one highlight first.");
+      if (pointsErr) throw pointsErr;
 
-      // Use selected point IDs if provided, otherwise include all
-      const pointIds =
-        selectedPointIds && selectedPointIds.size > 0
-          ? Array.from(selectedPointIds)
-          : undefined;
+      const verifiedPointIds = (existingRows ?? []).map((row) => row.id);
+      if (verifiedPointIds.length < 1) {
+        throw new Error("Selected highlights no longer exist. Please reselect.");
+      }
 
       const { data: inserted, error: insErr } = await supabase
         .from("reel_jobs")
@@ -129,7 +134,7 @@ export function HighlightReelPanel({
           clip_before: 6,
           clip_after: 6,
           title: null,
-          ...(pointIds ? { point_ids: pointIds } : {}),
+          point_ids: verifiedPointIds,
         })
         .select("id")
         .single();
@@ -262,13 +267,10 @@ export function HighlightReelPanel({
         </span>
         <Button
           onClick={startNewReel}
-          disabled={
-            isStarting ||
-            (selectedPointIds !== undefined && selectedPointIds.size === 0)
-          }
+          disabled={isStarting || selectedPointIds.size === 0}
           className="h-8 px-3 bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-50"
           title={
-            selectedPointIds !== undefined && selectedPointIds.size === 0
+            selectedPointIds.size === 0
               ? "Select at least one highlight to generate a reel"
               : undefined
           }
