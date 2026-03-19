@@ -58,6 +58,16 @@ const ACTIONS: HighlightAction[] = [
 
 const MARK_OFFSET_SECONDS = 5;
 
+const ACTION_TIMELINE_COLORS: Record<HighlightAction, string> = {
+  spike: "#EF4444",
+  set: "#06B6D4",
+  block: "#3B82F6",
+  pass: "#22C55E",
+  ace: "#F59E0B",
+  save: "#8B5CF6",
+  other: "#9CA3AF",
+};
+
 function formatTime(s: number) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
@@ -219,6 +229,7 @@ export default function MatchHighlightsPage() {
       try {
         setIsLoading(true);
         setPageError(null);
+        setVideoDuration(0);
 
         const { data: matchRow, error: matchErr } = await supabase
           .from("matches")
@@ -440,6 +451,10 @@ export default function MatchHighlightsPage() {
         return next;
       });
       if (selectedPointId === id) setSelectedPointId(null);
+      if (activeClipId === id) {
+        activeClipRef.current = null;
+        setActiveClipId(null);
+      }
       if (lastInsertedIdRef.current === id) {
         lastInsertedIdRef.current = null;
         setCanUndo(false);
@@ -464,7 +479,7 @@ export default function MatchHighlightsPage() {
       <div className="min-h-screen flex flex-col">
         <SiteHeader showNav={true} activePage="dashboard" />
         <main className="flex-1 bg-gray-50 px-6 py-8">
-          <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
+          <div className="max-w-[1500px] mx-auto space-y-6 animate-pulse">
             <div className="h-8 bg-gray-200 rounded w-1/3" />
             <div className="grid lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 h-96 bg-gray-200 rounded" />
