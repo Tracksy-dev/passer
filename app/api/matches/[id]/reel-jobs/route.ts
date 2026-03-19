@@ -3,9 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const matchId = params.id;
+  const { id } = await params;
+  const matchId = id;
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +21,7 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
   const clipBefore = typeof body.clipBefore === "number" ? body.clipBefore : 6;
   const clipAfter = typeof body.clipAfter === "number" ? body.clipAfter : 6;
+  const pointIds = Array.isArray(body.pointIds) ? body.pointIds : undefined;
 
   const { data: job, error } = await supabase
     .from("reel_jobs")
@@ -29,6 +31,7 @@ export async function POST(
       status: "queued",
       clip_before: clipBefore,
       clip_after: clipAfter,
+      ...(pointIds ? { point_ids: pointIds } : {}),
     })
     .select("id, status, clip_before, clip_after, created_at")
     .single();

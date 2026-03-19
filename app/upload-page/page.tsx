@@ -11,6 +11,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { CheckCircle2, AlertCircle, X } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 const ALLOWED_FORMATS = [".mp4", ".mov", ".avi"];
@@ -18,6 +19,7 @@ const ALLOWED_MIME_TYPES = ["video/mp4", "video/quicktime", "video/x-msvideo"];
 
 export default function UploadPage() {
   const router = useRouter();
+  const prefersReducedMotion = useReducedMotion();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -34,7 +36,7 @@ export default function UploadPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const { data, error } = await supabase.auth.getSession();
+      const { error } = await supabase.auth.getSession();
 
       if (error) {
         console.error("Supabase session error:", error);
@@ -106,7 +108,6 @@ export default function UploadPage() {
     const { data: uploadData, error: urlError } = await supabase.storage
       .from("match-videos")
       .createSignedUploadUrl(fileName, {
-        contentType: file.type,
         upsert: false,
       });
 
@@ -290,11 +291,11 @@ export default function UploadPage() {
     <div className="min-h-screen flex flex-col">
       <SiteHeader showNav={true} activePage="upload" />
 
-      <main className="flex-1 bg-gray-50 px-6 py-12">
-        <div className="max-w-4xl mx-auto space-y-8">
+      <main className="page-shell flex-1 px-4 md:px-6 lg:px-8 py-8 md:py-12">
+        <div className="max-w-4xl mx-auto space-y-6 md:space-y-8">
           {/* Status Messages */}
           {uploadStatus === "success" && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+            <div className="bg-green-50/90 border border-green-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
               <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
               <p className="text-green-800">
                 Video uploaded successfully! Your match analysis will be ready
@@ -304,7 +305,7 @@ export default function UploadPage() {
           )}
 
           {uploadStatus === "error" && errorMessage && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="bg-red-50/90 border border-red-200 rounded-2xl p-4 shadow-sm">
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
@@ -322,9 +323,14 @@ export default function UploadPage() {
           )}
 
           {/* Upload Area */}
-          <div
-            className={`bg-white rounded-lg border-2 border-dashed p-16 transition-colors ${
-              isDragging ? "border-[#0047AB] bg-blue-50" : "border-gray-300"
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            transition={prefersReducedMotion ? undefined : { duration: 0.32 }}
+            className={`rounded-3xl border-2 border-dashed p-8 md:p-12 lg:p-16 transition-colors shadow-[0_24px_44px_-34px_rgba(0,71,171,0.95)] backdrop-blur-lg ${
+              isDragging
+                ? "border-[#0047AB] bg-[#dfeeff]/90"
+                : "border-[#99bbe4] bg-white/72"
             }`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -376,7 +382,7 @@ export default function UploadPage() {
                   onClick={() =>
                     document.getElementById("file-upload")?.click()
                   }
-                  className="bg-[#0047AB] hover:bg-[#003580] text-white px-8 h-11"
+                  className="px-8 h-11"
                   disabled={isUploading}
                 >
                   {selectedFile ? "Change Video" : "Click to upload"}
@@ -385,7 +391,7 @@ export default function UploadPage() {
                   <Button
                     onClick={handleClearFile}
                     variant="outline"
-                    className="border-gray-300 text-gray-700 hover:bg-gray-100 px-6 h-11"
+                    className="border-[#94b6de] text-[#18467f] hover:bg-[#e8f2ff] px-6 h-11"
                   >
                     <X className="w-4 h-4 mr-2" />
                     Clear
@@ -398,11 +404,16 @@ export default function UploadPage() {
                 Supported formats: .mp4, .mov, .avi (Max: 500MB)
               </p>
             </div>
-          </div>
+          </motion.div>
 
           {/* Progress Bar - Shows during file upload */}
           {isUploading && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <motion.div
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+              animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+              transition={prefersReducedMotion ? undefined : { duration: 0.24 }}
+              className="glass-surface p-6"
+            >
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-900">
@@ -413,9 +424,15 @@ export default function UploadPage() {
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div
-                    className="bg-[#0047AB] h-3 rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
+                  <motion.div
+                    className="bg-[linear-gradient(120deg,#0047AB,#1B7CFF,#E8A550)] h-3 rounded-full transition-all duration-300"
+                    initial={prefersReducedMotion ? false : { width: 0 }}
+                    animate={{ width: `${uploadProgress}%` }}
+                    transition={
+                      prefersReducedMotion
+                        ? undefined
+                        : { duration: 0.35, ease: [0.22, 1, 0.36, 1] }
+                    }
                   />
                 </div>
                 <div className="flex items-center justify-between">
@@ -431,15 +448,21 @@ export default function UploadPage() {
                   </Button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* Match Details Form */}
-          <form
+          <motion.form
             onSubmit={handleSubmit}
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-8"
+            className="rounded-2xl border border-white/70 bg-white/90 shadow-[0_20px_50px_-35px_rgba(0,32,92,0.7)] p-5 md:p-8 hover-border-glow"
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
+            whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.1 }}
+            transition={
+              prefersReducedMotion ? undefined : { duration: 0.4, delay: 0.06, ease: [0.22, 1, 0.36, 1] }
+            }
           >
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid md:grid-cols-2 gap-4 md:gap-6">
               {/* Team Name */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-900">
@@ -471,7 +494,7 @@ export default function UploadPage() {
               </div>
 
               {/* Match Date */}
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-2 md:col-span-2 relative z-20">
                 <label className="text-sm font-medium text-gray-900">
                   Match Date
                 </label>
@@ -498,7 +521,7 @@ export default function UploadPage() {
             >
               {isUploading ? "Uploading..." : "Submit"}
             </Button>
-          </form>
+          </motion.form>
         </div>
       </main>
 

@@ -296,10 +296,10 @@ export default function SettingsPage() {
     <div className="min-h-screen flex flex-col">
       <SiteHeader showNav={true} />
 
-      <main className="flex-1 bg-gray-50 px-6 py-12">
+      <main className="flex-1 bg-gray-50 px-4 md:px-6 lg:px-8 py-8 md:py-12">
         <div className="max-w-3xl mx-auto">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-            <div className="flex items-start justify-between gap-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 md:p-8">
+            <div className="flex items-start justify-between gap-4 md:gap-6 flex-wrap">
               <div>
                 <h1 className="text-2xl font-semibold text-gray-900">
                   Settings
@@ -330,7 +330,7 @@ export default function SettingsPage() {
             ) : (
               <div className="mt-8 grid gap-8">
                 {/* Profile Picture */}
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-4 md:gap-6">
                   <div className="relative">
                     <div className="w-20 h-20 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center">
                       {avatarUrl ? (
@@ -376,7 +376,7 @@ export default function SettingsPage() {
 
                 {/* Change Password Section */}
                 <div className="border-t border-gray-200 pt-6">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
                       <p className="text-sm font-medium text-gray-900">
                         Password
@@ -398,7 +398,7 @@ export default function SettingsPage() {
 
                 {/* Profile Visibility Section */}
                 <div className="border-t border-gray-200 pt-6">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-gray-900">

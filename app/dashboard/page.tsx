@@ -11,6 +11,8 @@ import { Card } from "@/components/ui/card";
 import { Search, Trash2 } from "lucide-react";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
+import { motion, useReducedMotion } from "framer-motion";
+import { toast } from "sonner";
 
 interface Match {
   id: string;
@@ -24,6 +26,7 @@ interface Match {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const prefersReducedMotion = useReducedMotion();
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -137,13 +140,15 @@ export default function DashboardPage() {
         prevMatches.filter((m) => m.id !== matchToDelete.id),
       );
 
+      toast.success("Match deleted successfully.");
+
       // Redirect to upload page if no matches left
       if (matches.length === 1) {
         router.push("/upload-page");
       }
     } catch (error) {
       console.error("Error deleting match:", error);
-      alert("Failed to delete match. Please try again.");
+      toast.error("Failed to delete match. Please try again.");
     } finally {
       setDeletingMatchId(null);
       setMatchToDelete(null);
@@ -169,11 +174,16 @@ export default function DashboardPage() {
       <SiteHeader showNav={true} activePage="dashboard" />
 
       {/* Main Content */}
-      <main className="flex-1 bg-gray-50 px-6 py-8">
-        <div className="max-w-7xl mx-auto space-y-8">
+      <main className="page-shell flex-1 px-4 md:px-6 lg:px-8 py-6 md:py-8">
+        <div className="max-w-7xl mx-auto space-y-6 md:space-y-8">
           {/* Search and Filter Section */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="grid md:grid-cols-2 gap-6">
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            transition={prefersReducedMotion ? undefined : { duration: 0.3 }}
+            className="glass-surface p-4 md:p-6 relative z-20"
+          >
+            <div className="grid md:grid-cols-2 gap-4 md:gap-6">
               {/* Search */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-900">
@@ -184,7 +194,7 @@ export default function DashboardPage() {
                   <Input
                     type="text"
                     placeholder="Search by opponent or match details..."
-                    className="h-11 pl-10 bg-gray-50 border-gray-200"
+                    className="h-11 pl-10"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -204,12 +214,22 @@ export default function DashboardPage() {
                 />
               </div>
             </div>
-          </div>
+          </motion.div>
 
-          {/* Loading State */}
+          {/* Skeleton Loading State */}
           {loading && (
-            <div className="text-center py-12">
-              <p className="text-gray-600">Loading matches...</p>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="rounded-2xl border border-white/70 bg-white/50 backdrop-blur-md p-6 space-y-4">
+                  <div className="skeleton h-5 w-3/4" />
+                  <div className="skeleton h-4 w-1/2" />
+                  <div className="skeleton h-4 w-2/3" />
+                  <div className="flex gap-2 mt-4">
+                    <div className="skeleton h-11 flex-1" />
+                    <div className="skeleton h-11 w-12" />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -224,158 +244,70 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Demo Match Card (Mock Data) */}
-          {!loading && (
-            <>
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200 p-4 mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
-                        DEMO
-                      </span>
-                      <p className="text-sm font-medium text-gray-900">
-                        Sample match with full analysis and point-by-point
-                        breakdown
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                {/* Demo Match Cards */}
-                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
-                      DEMO
-                    </span>
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      DkIT VC vs St. Mary&apos;s College
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Date: November 1, 2023
-                    </p>
-                    <p className="text-sm text-gray-700 leading-relaxed">
-                      3-0 Victory • 95% Analysis Confidence
-                    </p>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Button
-                      onClick={() => router.push("/match/1/set/1")}
-                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
-                    >
-                      View Report
-                    </Button>
-                  </div>
-                </Card>
-
-                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
-                      DEMO
-                    </span>
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      DkIT VC vs Trinity College Dublin
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Date: November 2, 2023
-                    </p>
-                    <p className="text-sm text-gray-700 leading-relaxed">
-                      3-2 Victory • 91% Analysis Confidence
-                    </p>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Button
-                      onClick={() => router.push("/match/2/set/1")}
-                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
-                    >
-                      View Report
-                    </Button>
-                  </div>
-                </Card>
-
-                <Card className="p-6 shadow-sm border-blue-200 border-2 flex flex-col bg-gradient-to-br from-white to-blue-50">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
-                      DEMO
-                    </span>
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      DkIT VC vs UCD
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Date: November 3, 2023
-                    </p>
-                    <p className="text-sm text-gray-700 leading-relaxed">
-                      3-0 Victory • 97% Analysis Confidence
-                    </p>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Button
-                      onClick={() => router.push("/match/3/set/1")}
-                      className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
-                    >
-                      View Report
-                    </Button>
-                  </div>
-                </Card>
-              </div>
-            </>
-          )}
-
           {/* User's Uploaded Matches */}
           {!loading && filteredMatches.length > 0 && (
             <>
-              <div className="border-t border-gray-300 pt-8 mb-6">
-                <h2 className="text-xl font-bold text-gray-900">
+              <div className="border-t border-[#9ec0ea] pt-8 mb-6">
+                <h2 className="text-xl font-bold text-[#143f74]">
                   Your Uploaded Matches
                 </h2>
               </div>
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredMatches.map((match) => (
-                  <Card
+                {filteredMatches.map((match, idx) => (
+                  <motion.div
                     key={match.id}
-                    className="p-6 shadow-sm border-gray-200 flex flex-col"
+                    initial={
+                      prefersReducedMotion ? false : { opacity: 0, y: 24 }
+                    }
+                    whileInView={
+                      prefersReducedMotion ? undefined : { opacity: 1, y: 0 }
+                    }
+                    viewport={{ once: true, amount: 0.15 }}
+                    transition={
+                      prefersReducedMotion
+                        ? undefined
+                        : { duration: 0.35, delay: Math.min(idx * 0.06, 0.3), ease: [0.22, 1, 0.36, 1] }
+                    }
+                    whileHover={prefersReducedMotion ? undefined : { y: -6, scale: 1.02 }}
                   >
-                    <div className="flex-1 space-y-3">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {match.team_name || "DkIT VC"} vs {match.opponent}
-                      </h3>
-                      <p className="text-sm text-gray-600">
-                        Date: {new Date(match.match_date).toLocaleDateString()}
-                      </p>
-                      <p className="text-sm text-gray-700 leading-relaxed">
-                        Match video uploaded on{" "}
-                        {new Date(match.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 mt-4">
-                      <Button
-                        onClick={() => router.push(`/match/${match.id}/set/1`)}
-                        className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
-                      >
-                        View Report
-                      </Button>
-                      <Button
-                        onClick={() => handleDeleteMatch(match)}
-                        disabled={deletingMatchId === match.id}
-                        variant="outline"
-                        className="h-11 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 disabled:opacity-50"
-                      >
-                        {deletingMatchId === match.id ? (
-                          <span className="text-xs">Deleting...</span>
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </Card>
+                    <Card className="p-6 border-[#c9dbf3] bg-white/74 flex flex-col">
+                      <div className="flex-1 space-y-3">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {match.team_name || "DkIT VC"} vs {match.opponent}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Date:{" "}
+                          {new Date(match.match_date).toLocaleDateString()}
+                        </p>
+                        <p className="text-sm text-gray-700 leading-relaxed">
+                          Match video uploaded on{" "}
+                          {new Date(match.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 mt-4">
+                        <Button
+                          onClick={() =>
+                            router.push(`/match/${match.id}/set/1`)
+                          }
+                          className="flex-1 h-11 bg-[#0047AB] hover:bg-[#003580] text-white font-medium"
+                        >
+                          View Report
+                        </Button>
+                        <Button
+                          onClick={() => handleDeleteMatch(match)}
+                          disabled={deletingMatchId === match.id}
+                          variant="outline"
+                          className="h-11 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 disabled:opacity-50"
+                        >
+                          {deletingMatchId === match.id ? (
+                            <span className="text-xs">Deleting...</span>
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </Card>
+                  </motion.div>
                 ))}
               </div>
             </>

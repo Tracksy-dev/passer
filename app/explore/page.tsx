@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { Button } from "@/components/ui/button";
+import Image from "next/image";
+import Link from "next/link";
 import {
   Compass,
   Film,
@@ -17,7 +19,9 @@ import {
   ChevronDown,
   Volume2,
   VolumeX,
+  Search,
 } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 
 const PAGE_SIZE = 12;
 
@@ -34,8 +38,20 @@ type ExploreReel = {
   } | null;
 };
 
+type SearchResult = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  team: string | null;
+  position: string | null;
+  public_reels: number;
+  followers: number;
+};
+
 export default function ExplorePage() {
   const router = useRouter();
+  const prefersReducedMotion = useReducedMotion();
 
   const [authed, setAuthed] = useState(false);
   const [reels, setReels] = useState<ExploreReel[]>([]);
@@ -47,12 +63,20 @@ export default function ExplorePage() {
   const [feedOpen, setFeedOpen] = useState(false);
   const [feedStartIndex, setFeedStartIndex] = useState(0);
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchActive, setSearchActive] = useState(false);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const fetchReels = useCallback(async (offset: number, append: boolean) => {
     const { data: reelData, error: reelErr } = await supabase
       .from("reel_jobs")
       .select("id, title, output_url, created_at, user_id")
       .eq("status", "complete")
       .eq("is_public", true)
+      .eq("show_on_explore", true)
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
 
@@ -125,13 +149,63 @@ export default function ExplorePage() {
     setFeedOpen(true);
   };
 
+  const handleSearch = (value: string) => {
+    setSearchQuery(value);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+
+    if (value.trim().length < 2) {
+      setSearchResults([]);
+      setSearchActive(false);
+      setSearching(false);
+      return;
+    }
+
+    setSearchActive(true);
+    setSearching(true);
+    searchTimeout.current = setTimeout(async () => {
+      const res = await fetch(
+        `/api/users/search?q=${encodeURIComponent(value.trim())}`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(data.results ?? []);
+      } else {
+        setSearchResults([]);
+      }
+      setSearching(false);
+    }, 300);
+  };
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchActive(false);
+    setSearching(false);
+  };
+
   // ── Loading state ──
   if (!authed || loading) {
     return (
       <div className="min-h-screen flex flex-col">
         <SiteHeader showNav={true} activePage="explore" />
-        <main className="flex-1 bg-white flex items-center justify-center">
-          <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+        <main className="page-shell flex-1">
+          <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pt-10 pb-12">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="skeleton w-7 h-7 rounded-full" />
+              <div className="space-y-2">
+                <div className="skeleton h-6 w-32" />
+                <div className="skeleton h-4 w-64" />
+              </div>
+            </div>
+            <div className="skeleton h-12 w-full rounded-2xl mb-8" />
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="rounded-2xl overflow-hidden border border-white/70 bg-white/50">
+                  <div className="skeleton aspect-[9/16]" />
+                </div>
+              ))}
+            </div>
+          </div>
         </main>
         <SiteFooter />
       </div>
@@ -153,24 +227,135 @@ export default function ExplorePage() {
 
   // ── Grid browse view ──
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col page-shell">
       <SiteHeader showNav={true} activePage="explore" />
 
       <main className="flex-1">
         {/* Page header */}
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-4 sm:pb-6">
+        <motion.div
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 18 }}
+          animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+          transition={prefersReducedMotion ? undefined : { duration: 0.32 }}
+          className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pt-8 md:pt-10 pb-4 md:pb-6"
+        >
           <div className="flex items-center gap-3">
             <Compass className="w-7 h-7 text-[#0047AB]" />
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Explore</h1>
-              <p className="text-sm text-gray-600 mt-0.5">
+              <h1 className="text-2xl font-bold text-[#123f77]">Explore</h1>
+              <p className="text-sm text-[#3d608d] mt-0.5">
                 Discover recent public highlight reels from the community.
               </p>
             </div>
           </div>
-        </div>
 
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+          {/* Search bar */}
+          <div className="mt-6 relative">
+            <div className="relative group">
+              <div className="absolute inset-0 bg-gradient-to-r from-[#0047AB]/20 via-[#1B7CFF]/20 to-[#E8A550]/20 rounded-2xl blur-sm group-focus-within:blur-md transition-all" />
+              <div className="relative flex items-center bg-white/80 border border-white/70 backdrop-blur-lg rounded-2xl shadow-[0_18px_35px_-24px_rgba(0,71,171,0.95)] group-focus-within:shadow-[0_22px_38px_-20px_rgba(0,71,171,0.95)] group-focus-within:border-[#0047AB]/30 transition-all">
+                <Search className="ml-4 w-5 h-5 text-[#4a6e97] group-focus-within:text-[#0047AB] transition-colors flex-shrink-0" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  placeholder="Search players by username or name..."
+                  className="w-full py-3.5 px-3 bg-transparent text-sm text-[#183f71] placeholder:text-[#6a86a8] focus:outline-none"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={clearSearch}
+                    className="mr-3 p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Search results */}
+            {searchActive && (
+              <div className="mt-3">
+                {searching ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                  </div>
+                ) : searchResults.length === 0 ? (
+                  <div className="text-center py-8">
+                    <User className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">
+                      No players found for &ldquo;{searchQuery}&rdquo;
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {searchResults.map((user, idx) => (
+                      <motion.div
+                        key={user.id}
+                        initial={
+                          prefersReducedMotion ? false : { opacity: 0, y: 12 }
+                        }
+                        animate={
+                          prefersReducedMotion
+                            ? undefined
+                            : { opacity: 1, y: 0 }
+                        }
+                        transition={
+                          prefersReducedMotion
+                            ? undefined
+                            : {
+                                duration: 0.25,
+                                delay: Math.min(idx * 0.04, 0.2),
+                              }
+                        }
+                        whileHover={
+                          prefersReducedMotion ? undefined : { y: -2 }
+                        }
+                      >
+                        <Link
+                          href={`/profile/${user.username}`}
+                          className="flex items-center gap-3 p-3 border border-white/75 rounded-xl hover:shadow-md transition-shadow bg-white/76 backdrop-blur-md hover-border-glow"
+                        >
+                          <div className="w-12 h-12 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex-shrink-0 flex items-center justify-center">
+                            {user.avatar_url ? (
+                              <Image
+                                src={user.avatar_url}
+                                alt={user.display_name || user.username}
+                                width={48}
+                                height={48}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-gray-400 text-sm font-medium">
+                                {(user.display_name || user.username)
+                                  .charAt(0)
+                                  .toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                              {user.username}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {user.display_name}
+                              {user.team ? ` · ${user.team}` : ""}
+                            </p>
+                            <div className="flex items-center gap-3 mt-0.5 text-[11px] text-gray-400">
+                              <span>{user.public_reels} reels</span>
+                              <span>{user.followers} followers</span>
+                            </div>
+                          </div>
+                        </Link>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pb-12">
           {reels.length === 0 ? (
             /* ─── Empty state ─── */
             <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -185,21 +370,19 @@ export default function ExplorePage() {
                 appear here. Be the first — set a reel to public from your
                 profile!
               </p>
-              <Button
-                onClick={() => router.push("/profile")}
-                className="mt-6 bg-[#0047AB] hover:bg-[#003580] text-white"
-              >
+              <Button onClick={() => router.push("/profile")} className="mt-6">
                 Go to your profile
               </Button>
             </div>
           ) : (
             <>
               {/* ─── Responsive grid ─── */}
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
                 {reels.map((reel, idx) => (
                   <ReelCard
                     key={reel.id}
                     reel={reel}
+                    index={idx}
                     onClick={() => openFeed(idx)}
                   />
                 ))}
@@ -211,7 +394,7 @@ export default function ExplorePage() {
                     onClick={loadMore}
                     disabled={loadingMore}
                     variant="outline"
-                    className="border-gray-300 text-gray-700 hover:bg-gray-100 px-8"
+                    className="border-[#8cb2e0] text-[#18467f] hover:bg-[#e8f2ff] px-8"
                   >
                     {loadingMore ? (
                       <>
@@ -240,18 +423,32 @@ export default function ExplorePage() {
 
 function ReelCard({
   reel,
+  index,
   onClick,
 }: {
   reel: ExploreReel;
+  index: number;
   onClick: () => void;
 }) {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
-    <button
+    <motion.button
       onClick={onClick}
-      className="group relative rounded-xl overflow-hidden border border-gray-200 bg-white hover:shadow-md transition-shadow text-left w-full"
+      className="group relative rounded-2xl overflow-hidden border border-white/75 bg-white/75 backdrop-blur-lg hover:shadow-[0_20px_38px_-24px_rgba(0,71,171,0.95)] transition-shadow text-left w-full hover-border-glow"
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
+      whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.15 }}
+      transition={
+        prefersReducedMotion
+          ? undefined
+          : { duration: 0.35, delay: Math.min(index * 0.05, 0.3), ease: [0.22, 1, 0.36, 1] }
+      }
+      whileHover={prefersReducedMotion ? undefined : { y: -6, scale: 1.02 }}
+      whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
     >
       {/* Thumbnail — 9:16 aspect on mobile, 9:16 everywhere for TikTok feel */}
-      <div className="aspect-[9/16] bg-gray-100 relative overflow-hidden">
+      <div className="aspect-[9/16] bg-[#dce7f6] relative overflow-hidden">
         {reel.output_url ? (
           <video
             src={reel.output_url}
@@ -289,7 +486,7 @@ function ReelCard({
           </p>
         </div>
       </div>
-    </button>
+    </motion.button>
   );
 }
 

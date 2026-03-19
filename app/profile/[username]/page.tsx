@@ -5,6 +5,7 @@ import Image from "next/image";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { PublicReelsGrid } from "@/components/public-reels-grid";
+import { ProfileFollowButton } from "@/components/profile-follow-button";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!;
@@ -151,11 +152,11 @@ export default async function PublicProfilePage({
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SiteHeader showNav={false} />
+      <SiteHeader showNav={true} activePage="profile" />
 
       <main className="flex-1">
-        <div className="max-w-4xl mx-auto px-6 pt-10 pb-6">
-          <div className="flex items-start gap-12 md:gap-20">
+        <div className="max-w-4xl mx-auto px-4 md:px-6 pt-8 md:pt-10 pb-6">
+          <div className="flex items-start gap-6 md:gap-10 lg:gap-20 flex-wrap md:flex-nowrap">
             {/* Avatar */}
             <div className="flex-shrink-0">
               <div className="w-[150px] h-[150px] rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100 flex items-center justify-center">
@@ -177,13 +178,19 @@ export default async function PublicProfilePage({
               </div>
             </div>
 
-            <div className="flex-1 min-w-0 pt-2">
-              <h1 className="text-xl font-normal text-gray-900">
-                {profile.username}
-              </h1>
+            <div className="flex-1 min-w-0 pt-1 md:pt-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-xl font-normal text-gray-900">
+                  {profile.username}
+                </h1>
+                <ProfileFollowButton
+                  profileUserId={profile.id}
+                  profileUsername={profile.username}
+                />
+              </div>
 
               {/* Stats */}
-              <div className="flex items-center gap-8 mt-5">
+              <div className="flex items-center gap-6 md:gap-8 mt-5 flex-wrap">
                 <div className="flex items-center gap-1">
                   <span className="font-semibold text-gray-900">
                     {publicReels.length}
@@ -232,7 +239,7 @@ export default async function PublicProfilePage({
         </div>
 
         {/* ─── Public Reels Grid ─── */}
-        <div className="border-t border-gray-200 max-w-4xl mx-auto px-6 pb-12">
+        <div className="border-t border-gray-200 max-w-4xl mx-auto px-4 md:px-6 pb-12">
           <PublicReelsGrid reels={publicReels} matchInfoMap={matchInfoMap} />
         </div>
       </main>

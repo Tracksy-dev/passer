@@ -33,6 +33,7 @@ type ReelItem = {
   output_url: string | null;
   created_at: string;
   is_public: boolean;
+  show_on_explore: boolean;
   match_id: string | null;
 };
 
@@ -104,18 +105,54 @@ export default function ProfilePage() {
   ) => {
     try {
       setTogglingReelId(reelId);
+      // If making private, also unset show_on_explore
+      const updates: { is_public: boolean; show_on_explore?: boolean } = {
+        is_public: !currentlyPublic,
+      };
+      if (currentlyPublic) {
+        updates.show_on_explore = false;
+      }
       const { error } = await supabase
         .from("reel_jobs")
-        .update({ is_public: !currentlyPublic })
+        .update(updates)
         .eq("id", reelId);
       if (error) throw error;
       setReels((prev) =>
         prev.map((r) =>
-          r.id === reelId ? { ...r, is_public: !currentlyPublic } : r,
+          r.id === reelId
+            ? {
+                ...r,
+                is_public: !currentlyPublic,
+                ...(currentlyPublic ? { show_on_explore: false } : {}),
+              }
+            : r,
         ),
       );
     } catch (e) {
       console.error("Failed to toggle privacy:", e);
+    } finally {
+      setTogglingReelId(null);
+    }
+  };
+
+  const toggleReelExplore = async (
+    reelId: string,
+    currentlyOnExplore: boolean,
+  ) => {
+    try {
+      setTogglingReelId(reelId);
+      const { error } = await supabase
+        .from("reel_jobs")
+        .update({ show_on_explore: !currentlyOnExplore })
+        .eq("id", reelId);
+      if (error) throw error;
+      setReels((prev) =>
+        prev.map((r) =>
+          r.id === reelId ? { ...r, show_on_explore: !currentlyOnExplore } : r,
+        ),
+      );
+    } catch (e) {
+      console.error("Failed to toggle explore visibility:", e);
     } finally {
       setTogglingReelId(null);
     }
@@ -190,9 +227,12 @@ export default function ProfilePage() {
       // Load completed reels
       const { data: reelData, count: reelCount } = await supabase
         .from("reel_jobs")
-        .select("id, title, output_url, created_at, is_public, match_id", {
-          count: "exact",
-        })
+        .select(
+          "id, title, output_url, created_at, is_public, show_on_explore, match_id",
+          {
+            count: "exact",
+          },
+        )
         .eq("user_id", u.id)
         .eq("status", "complete")
         .order("created_at", { ascending: false });
@@ -356,8 +396,8 @@ export default function ProfilePage() {
 
       <main className="flex-1">
         {/* ─── Profile Header ─── */}
-        <div className="max-w-4xl mx-auto px-6 pt-10 pb-6">
-          <div className="flex items-start gap-12 md:gap-20">
+        <div className="max-w-4xl mx-auto px-4 md:px-6 pt-8 md:pt-10 pb-6">
+          <div className="flex items-start gap-6 md:gap-10 lg:gap-20 flex-wrap md:flex-nowrap">
             {/* Avatar */}
             <div className="flex-shrink-0">
               <div className="w-[150px] h-[150px] rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100 flex items-center justify-center">
@@ -376,9 +416,9 @@ export default function ProfilePage() {
             </div>
 
             {/* Info */}
-            <div className="flex-1 min-w-0 pt-2">
+            <div className="flex-1 min-w-0 pt-1 md:pt-2">
               {/* Username + buttons */}
-              <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-3 md:gap-4 flex-wrap">
                 <h1 className="text-xl font-normal text-gray-900">
                   {profile.username || "username"}
                 </h1>
@@ -428,7 +468,7 @@ export default function ProfilePage() {
               </div>
 
               {/* Stats row */}
-              <div className="flex items-center gap-8 mt-5">
+              <div className="flex items-center gap-6 md:gap-8 mt-5 flex-wrap">
                 <div className="flex items-center gap-1">
                   <span className="font-semibold text-gray-900">
                     {reelsCount}
@@ -543,7 +583,7 @@ export default function ProfilePage() {
         )}
 
         {/* ─── Reels Grid ─── */}
-        <div className="max-w-4xl mx-auto px-6 pb-12">
+        <div className="max-w-4xl mx-auto px-4 md:px-6 pb-12">
           {reels.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <div className="w-20 h-20 rounded-full border-2 border-gray-300 flex items-center justify-center mb-4">
@@ -602,7 +642,7 @@ export default function ProfilePage() {
                         </div>
                       </div>
                       {/* Privacy badge */}
-                      <div className="absolute top-2 left-2">
+                      <div className="absolute top-2 left-2 flex items-center gap-1">
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full ${
                             reel.is_public
@@ -611,35 +651,73 @@ export default function ProfilePage() {
                           }`}
                         >
                           {reel.is_public ? (
-                            <Globe className="w-2.5 h-2.5" />
+                            <Eye className="w-2.5 h-2.5" />
                           ) : (
                             <Lock className="w-2.5 h-2.5" />
                           )}
                           {reel.is_public ? "Public" : "Private"}
                         </span>
+                        {reel.is_public && reel.show_on_explore && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-700">
+                            <Globe className="w-2.5 h-2.5" />
+                            Explore
+                          </span>
+                        )}
                       </div>
                       {/* Privacy toggle */}
-                      <button
-                        className="absolute top-2 right-2 z-10 p-1.5 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
-                        title={
-                          reel.is_public
-                            ? "Click to make private"
-                            : "Click to make public"
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleReelPrivacy(reel.id, reel.is_public);
-                        }}
-                        disabled={togglingReelId === reel.id}
-                      >
-                        {togglingReelId === reel.id ? (
-                          <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
-                        ) : reel.is_public ? (
-                          <EyeOff className="w-3.5 h-3.5 text-white" />
-                        ) : (
-                          <Eye className="w-3.5 h-3.5 text-white" />
-                        )}
-                      </button>
+                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                        <button
+                          className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
+                          title={
+                            reel.is_public
+                              ? "Click to make private"
+                              : "Click to make public"
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleReelPrivacy(reel.id, reel.is_public);
+                          }}
+                          disabled={togglingReelId === reel.id}
+                        >
+                          {togglingReelId === reel.id ? (
+                            <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
+                          ) : reel.is_public ? (
+                            <EyeOff className="w-3.5 h-3.5 text-white" />
+                          ) : (
+                            <Eye className="w-3.5 h-3.5 text-white" />
+                          )}
+                        </button>
+                        <button
+                          className={`p-1.5 rounded-full transition-colors ${
+                            reel.show_on_explore
+                              ? "bg-blue-500/60 hover:bg-blue-500/80"
+                              : "bg-black/40 hover:bg-black/60"
+                          } ${!reel.is_public ? "opacity-40 cursor-not-allowed" : ""}`}
+                          title={
+                            !reel.is_public
+                              ? "Make the reel public first to show on Explore"
+                              : reel.show_on_explore
+                                ? "Visible on Explore. Click to remove."
+                                : "Click to feature on the Explore page"
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (reel.is_public)
+                              toggleReelExplore(reel.id, reel.show_on_explore);
+                          }}
+                          disabled={
+                            togglingReelId === reel.id || !reel.is_public
+                          }
+                        >
+                          <Globe
+                            className={`w-3.5 h-3.5 ${
+                              reel.show_on_explore
+                                ? "text-white"
+                                : "text-white/70"
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Card body */}
@@ -710,20 +788,28 @@ export default function ProfilePage() {
                   {selectedReel?.title || "Highlight Reel"}
                 </p>
                 {selectedReel && (
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full ${
-                      selectedReel.is_public
-                        ? "bg-green-500/20 text-green-400"
-                        : "bg-gray-500/20 text-gray-400"
-                    }`}
-                  >
-                    {selectedReel.is_public ? (
-                      <Globe className="w-2.5 h-2.5" />
-                    ) : (
-                      <Lock className="w-2.5 h-2.5" />
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full ${
+                        selectedReel.is_public
+                          ? "bg-green-500/20 text-green-400"
+                          : "bg-gray-500/20 text-gray-400"
+                      }`}
+                    >
+                      {selectedReel.is_public ? (
+                        <Eye className="w-2.5 h-2.5" />
+                      ) : (
+                        <Lock className="w-2.5 h-2.5" />
+                      )}
+                      {selectedReel.is_public ? "Public" : "Private"}
+                    </span>
+                    {selectedReel.is_public && selectedReel.show_on_explore && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-blue-500/20 text-blue-400">
+                        <Globe className="w-2.5 h-2.5" />
+                        Explore
+                      </span>
                     )}
-                    {selectedReel.is_public ? "Public" : "Private"}
-                  </span>
+                  </div>
                 )}
               </div>
               {selectedReel?.match_id &&
