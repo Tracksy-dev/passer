@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Calendar, Film, Play, X } from "lucide-react";
+import { ReelLikeButton } from "@/components/reel-like-button";
 
 type PublicReel = {
   id: string;
@@ -28,6 +29,48 @@ export function PublicReelsGrid({
   matchInfoMap: Record<string, MatchInfo>;
 }) {
   const [selectedReel, setSelectedReel] = useState<PublicReel | null>(null);
+  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+  const [likedReelIds, setLikedReelIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const reelIds = reels.map((reel) => reel.id);
+    if (reelIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadLikeSummary = async () => {
+      try {
+        const res = await fetch(
+          `/api/reels/likes?ids=${encodeURIComponent(reelIds.join(","))}`,
+        );
+
+        if (!res.ok) return;
+
+        const data = (await res.json()) as {
+          counts?: Record<string, number>;
+          likedIds?: string[];
+        };
+
+        if (cancelled) return;
+
+        setLikeCounts(data.counts ?? {});
+        setLikedReelIds(new Set(data.likedIds ?? []));
+      } catch {
+        if (!cancelled) {
+          setLikeCounts({});
+          setLikedReelIds(new Set());
+        }
+      }
+    };
+
+    loadLikeSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reels]);
 
   if (reels.length === 0) {
     return (
@@ -77,9 +120,33 @@ export function PublicReelsGrid({
 
               {/* Card body */}
               <div className="px-3 py-2.5">
-                <h4 className="text-sm font-semibold text-gray-900 truncate">
-                  {reel.title || "Highlight Reel"}
-                </h4>
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-gray-900 truncate">
+                    {reel.title || "Highlight Reel"}
+                  </h4>
+                  <ReelLikeButton
+                    reelId={reel.id}
+                    initialCount={likeCounts[reel.id] ?? 0}
+                    initialLiked={likedReelIds.has(reel.id)}
+                    className="border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                    onLikeChange={(nextLiked, nextCount) => {
+                      setLikeCounts((prev) => ({
+                        ...prev,
+                        [reel.id]: nextCount,
+                      }));
+
+                      setLikedReelIds((prev) => {
+                        const next = new Set(prev);
+                        if (nextLiked) {
+                          next.add(reel.id);
+                        } else {
+                          next.delete(reel.id);
+                        }
+                        return next;
+                      });
+                    }}
+                  />
+                </div>
                 {matchInfo && (
                   <p className="text-xs text-gray-500 mt-0.5 truncate">
                     🏐 {formatMatch(matchInfo)}

@@ -102,6 +102,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: insertErr.message }, { status: 400 });
   }
 
+  // Best-effort notification creation for follow event.
+  const { error: notifErr } = await supabase.from("notifications").insert({
+    user_id: followingId,
+    actor_id: user.id,
+    type: "followed_you",
+  });
+
+  if (notifErr) {
+    console.error("Failed to create follow notification:", notifErr.message);
+  }
+
   // Return updated counts for the target user
   const counts = await getCounts(supabase, followingId);
 

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { Button } from "@/components/ui/button";
+import { ReelLikeButton } from "@/components/reel-like-button";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -58,6 +59,8 @@ export default function ExplorePage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+  const [likedReelIds, setLikedReelIds] = useState<Set<string>>(new Set());
 
   // Feed state
   const [feedOpen, setFeedOpen] = useState(false);
@@ -138,6 +141,46 @@ export default function ExplorePage() {
     init();
   }, [router, fetchReels]);
 
+  useEffect(() => {
+    const reelIds = reels.map((reel) => reel.id);
+    if (reelIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadLikeSummary = async () => {
+      try {
+        const res = await fetch(
+          `/api/reels/likes?ids=${encodeURIComponent(reelIds.join(","))}`,
+        );
+
+        if (!res.ok) return;
+
+        const data = (await res.json()) as {
+          counts?: Record<string, number>;
+          likedIds?: string[];
+        };
+
+        if (cancelled) return;
+
+        setLikeCounts(data.counts ?? {});
+        setLikedReelIds(new Set(data.likedIds ?? []));
+      } catch {
+        if (!cancelled) {
+          setLikeCounts({});
+          setLikedReelIds(new Set());
+        }
+      }
+    };
+
+    loadLikeSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reels]);
+
   const loadMore = async () => {
     setLoadingMore(true);
     await fetchReels(reels.length, true);
@@ -200,7 +243,10 @@ export default function ExplorePage() {
             <div className="skeleton h-12 w-full rounded-2xl mb-8" />
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="rounded-2xl overflow-hidden border border-white/70 bg-white/50">
+                <div
+                  key={i}
+                  className="rounded-2xl overflow-hidden border border-white/70 bg-white/50"
+                >
                   <div className="skeleton aspect-[9/16]" />
                 </div>
               ))}
@@ -384,6 +430,23 @@ export default function ExplorePage() {
                     reel={reel}
                     index={idx}
                     onClick={() => openFeed(idx)}
+                    likeCount={likeCounts[reel.id] ?? 0}
+                    isLiked={likedReelIds.has(reel.id)}
+                    onLikeChange={(nextLiked, nextCount) => {
+                      setLikeCounts((prev) => ({
+                        ...prev,
+                        [reel.id]: nextCount,
+                      }));
+                      setLikedReelIds((prev) => {
+                        const next = new Set(prev);
+                        if (nextLiked) {
+                          next.add(reel.id);
+                        } else {
+                          next.delete(reel.id);
+                        }
+                        return next;
+                      });
+                    }}
                   />
                 ))}
               </div>
@@ -425,30 +488,57 @@ function ReelCard({
   reel,
   index,
   onClick,
+  likeCount,
+  isLiked,
+  onLikeChange,
 }: {
   reel: ExploreReel;
   index: number;
   onClick: () => void;
+  likeCount: number;
+  isLiked: boolean;
+  onLikeChange: (liked: boolean, count: number) => void;
 }) {
   const prefersReducedMotion = useReducedMotion();
 
   return (
-    <motion.button
+    <motion.div
       onClick={onClick}
-      className="group relative rounded-2xl overflow-hidden border border-white/75 bg-white/75 backdrop-blur-lg hover:shadow-[0_20px_38px_-24px_rgba(0,71,171,0.95)] transition-shadow text-left w-full hover-border-glow"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      className="group relative rounded-2xl overflow-hidden border border-white/75 bg-white/75 backdrop-blur-lg hover:shadow-[0_20px_38px_-24px_rgba(0,71,171,0.95)] transition-shadow text-left w-full hover-border-glow cursor-pointer"
       initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
       whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.15 }}
       transition={
         prefersReducedMotion
           ? undefined
-          : { duration: 0.35, delay: Math.min(index * 0.05, 0.3), ease: [0.22, 1, 0.36, 1] }
+          : {
+              duration: 0.35,
+              delay: Math.min(index * 0.05, 0.3),
+              ease: [0.22, 1, 0.36, 1],
+            }
       }
       whileHover={prefersReducedMotion ? undefined : { y: -6, scale: 1.02 }}
       whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
     >
       {/* Thumbnail — 9:16 aspect on mobile, 9:16 everywhere for TikTok feel */}
       <div className="aspect-[9/16] bg-[#dce7f6] relative overflow-hidden">
+        <div className="absolute top-2 right-2 z-10">
+          <ReelLikeButton
+            reelId={reel.id}
+            initialCount={likeCount}
+            initialLiked={isLiked}
+            onLikeChange={onLikeChange}
+          />
+        </div>
+
         {reel.output_url ? (
           <video
             src={reel.output_url}
@@ -486,7 +576,7 @@ function ReelCard({
           </p>
         </div>
       </div>
-    </motion.button>
+    </motion.div>
   );
 }
 

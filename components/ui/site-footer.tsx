@@ -47,7 +47,7 @@ export function SiteFooter() {
         >
           <Link
             href="#"
-            className="text-white/80 hover:text-white transition-colors rounded-full border border-white/30 bg-white/10 p-2.5"
+            className="inline-flex items-center justify-center w-10 h-10 text-white/80 hover:text-white transition-colors rounded-full border border-white/30 bg-white/10"
           >
             <motion.span
               whileHover={
@@ -61,7 +61,7 @@ export function SiteFooter() {
           </Link>
           <Link
             href="#"
-            className="text-white/80 hover:text-white transition-colors rounded-full border border-white/30 bg-white/10 p-2.5"
+            className="inline-flex items-center justify-center w-10 h-10 text-white/80 hover:text-white transition-colors rounded-full border border-white/30 bg-white/10"
           >
             <motion.span
               whileHover={
@@ -75,7 +75,7 @@ export function SiteFooter() {
           </Link>
           <Link
             href="#"
-            className="text-white/80 hover:text-white transition-colors rounded-full border border-white/30 bg-white/10 p-2.5"
+            className="inline-flex items-center justify-center w-10 h-10 text-white/80 hover:text-white transition-colors rounded-full border border-white/30 bg-white/10"
           >
             <motion.span
               whileHover={

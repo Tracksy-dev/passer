@@ -24,22 +24,54 @@ export default function ForgotPasswordPage() {
     setError("");
 
     try {
+      const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+      const redirectBase = configuredSiteUrl
+        ? configuredSiteUrl.replace(/\/$/, "")
+        : window.location.origin;
+
       // Send password reset email via Supabase Auth
       // Supabase will check if the email exists and only send if it does
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         email,
         {
-          redirectTo: `${window.location.origin}/reset-password`,
+          redirectTo: `${redirectBase}/reset-password`,
         },
       );
 
       if (resetError) {
+        const message = resetError.message || "";
+        const lowerMessage = message.toLowerCase();
+
+        if (lowerMessage.includes("email rate limit exceeded")) {
+          setError(
+            "Password reset email quota reached for this project. Please wait up to an hour or configure custom SMTP in Supabase Auth settings.",
+          );
+          setIsLoading(false);
+          return;
+        }
+
+        // Password reset emails can be rate-limited briefly by Supabase.
+        if (
+          lowerMessage.includes("security purposes") ||
+          lowerMessage.includes("rate")
+        ) {
+          setError(
+            "Please wait about a minute before requesting another reset email.",
+          );
+          setIsLoading(false);
+          return;
+        }
+
         // Check if it's a "User not found" error
         if (
-          resetError.message.includes("User not found") ||
-          resetError.message.includes("not found")
+          message.includes("User not found") ||
+          message.includes("not found")
         ) {
           setError("No account found with this email address");
+        } else if (lowerMessage.includes("redirect")) {
+          setError(
+            "Reset link redirect is not allowed. Add your app URL to Supabase Auth Redirect URLs.",
+          );
         } else {
           throw resetError;
         }
@@ -91,7 +123,7 @@ export default function ForgotPasswordPage() {
                       Check your email
                     </h2>
                     <p className="text-gray-600 text-sm">
-                      We've sent a password reset link to{" "}
+                      We&apos;ve sent a password reset link to{" "}
                       <span className="font-medium text-gray-900">{email}</span>
                     </p>
                   </div>
@@ -99,7 +131,7 @@ export default function ForgotPasswordPage() {
 
                 <div className="space-y-3">
                   <p className="text-sm text-gray-600 text-center">
-                    Didn't receive the email? Check your spam folder or
+                    Didn&apos;t receive the email? Check your spam folder or
                   </p>
                   <Button
                     type="button"
