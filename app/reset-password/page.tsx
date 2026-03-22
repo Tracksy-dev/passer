@@ -13,15 +13,14 @@ import {
   Circle,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { type FormEvent, useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { type FormEvent, useState, useEffect, Suspense, useRef } from "react";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { PasserIcon } from "@/components/ui/passer-icon";
 import { supabase } from "@/lib/supabase";
 
 function ResetPasswordForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [isLoading, setIsLoading] = useState(false);
@@ -35,6 +34,11 @@ function ResetPasswordForm() {
     password?: string;
     confirmPassword?: string;
   }>({});
+  const hasValidatedToken = useRef(false);
+
+  const [tokenErrorMessage, setTokenErrorMessage] = useState(
+    "This password reset link is invalid or has expired. Please request a new one.",
+  );
 
   // Track password requirements
   const passwordRequirements = {
@@ -45,35 +49,99 @@ function ResetPasswordForm() {
     hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
   };
 
-  // Validate token on mount - Supabase automatically validates the hash from the email link
+  // Validate token on mount and support all Supabase recovery link formats.
   useEffect(() => {
+    if (hasValidatedToken.current) {
+      return;
+    }
+    hasValidatedToken.current = true;
+
     const validateToken = async () => {
-      // Check if we have the hash fragment from Supabase email link
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const accessToken = hashParams.get("access_token");
-      const type = hashParams.get("type");
+      try {
+        const hashParams = new URLSearchParams(
+          window.location.hash.substring(1),
+        );
+        const hashType = hashParams.get("type");
+        const hashAccessToken = hashParams.get("access_token");
 
-      if (type !== "recovery" || !accessToken) {
+        // Legacy/hash-based recovery link format:
+        // /reset-password#access_token=...&type=recovery
+        if (hashType === "recovery" && hashAccessToken) {
+          const {
+            data: { session },
+            error,
+          } = await supabase.auth.getSession();
+
+          if (error || !session) {
+            setTokenErrorMessage(
+              "This reset session is no longer valid. Please request a new reset link.",
+            );
+            setIsValidToken(false);
+            return;
+          }
+
+          setIsValidToken(true);
+          return;
+        }
+
+        const code = searchParams.get("code");
+        const tokenHash = searchParams.get("token_hash");
+        const type = searchParams.get("type");
+
+        // PKCE link format:
+        // /reset-password?code=...
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+          if (error) {
+            setTokenErrorMessage(
+              error.message ||
+                "Unable to verify reset link. Please request a new one.",
+            );
+            setIsValidToken(false);
+            return;
+          }
+
+          setIsValidToken(true);
+          return;
+        }
+
+        // OTP/hash query format:
+        // /reset-password?token_hash=...&type=recovery
+        if (tokenHash && type === "recovery") {
+          const { error } = await supabase.auth.verifyOtp({
+            type: "recovery",
+            token_hash: tokenHash,
+          });
+
+          if (error) {
+            setTokenErrorMessage(
+              error.message ||
+                "Unable to verify reset link. Please request a new one.",
+            );
+            setIsValidToken(false);
+            return;
+          }
+
+          setIsValidToken(true);
+          return;
+        }
+
+        setTokenErrorMessage(
+          "This password reset link is missing required credentials. Please request a new one.",
+        );
         setIsValidToken(false);
-        return;
-      }
-
-      // Verify the session is valid
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-
-      if (error || !session) {
+      } catch (error) {
+        console.error("Reset token validation error:", error);
+        setTokenErrorMessage(
+          "Unable to validate reset link right now. Please try requesting a new one.",
+        );
         setIsValidToken(false);
-        return;
       }
-
-      setIsValidToken(true);
     };
 
     validateToken();
-  }, []);
+  }, [searchParams]);
 
   const validateForm = () => {
     const newErrors: { password?: string; confirmPassword?: string } = {};
@@ -116,6 +184,8 @@ function ResetPasswordForm() {
 
       if (error) throw error;
 
+      // Sign out so the user must log in with their new password
+      await supabase.auth.signOut();
       setIsSuccess(true);
     } catch (err) {
       console.error("Password reset error:", err);
@@ -153,10 +223,7 @@ function ResetPasswordForm() {
               <h2 className="text-xl font-semibold text-gray-900">
                 Invalid or expired link
               </h2>
-              <p className="text-gray-600 text-sm">
-                This password reset link is invalid or has expired. Please
-                request a new one.
-              </p>
+              <p className="text-gray-600 text-sm">{tokenErrorMessage}</p>
             </div>
           </div>
 

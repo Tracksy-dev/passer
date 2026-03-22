@@ -3,17 +3,69 @@
 import { PasserLogo } from "./passer-logo";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Compass, LogOut } from "lucide-react";
+import { Bell, Compass, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { motion, useReducedMotion } from "framer-motion";
+import { useEffect, useState } from "react";
 
 interface SiteHeaderProps {
   showNav?: boolean;
-  activePage?: "dashboard" | "upload" | "profile" | "explore";
+  activePage?: "dashboard" | "upload" | "profile" | "explore" | "notifications";
 }
 
 export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
   const prefersReducedMotion = useReducedMotion();
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [canShowNotifications, setCanShowNotifications] = useState(false);
+
+  useEffect(() => {
+    if (!showNav) return;
+
+    let cancelled = false;
+
+    const fetchUnreadCount = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session) {
+          if (!cancelled) {
+            setCanShowNotifications(false);
+            setUnreadCount(0);
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setCanShowNotifications(true);
+        }
+
+        const res = await fetch("/api/notifications/unread-count", {
+          cache: "no-store",
+        });
+
+        if (!res.ok) return;
+
+        const data = (await res.json()) as { unreadCount?: number };
+        if (!cancelled) {
+          setUnreadCount(Math.max(0, data.unreadCount ?? 0));
+        }
+      } catch {
+        if (!cancelled) {
+          setUnreadCount(0);
+        }
+      }
+    };
+
+    fetchUnreadCount();
+    const interval = window.setInterval(fetchUnreadCount, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [showNav]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -119,6 +171,24 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
                   Profile
                 </motion.span>
               </Link>
+              {canShowNotifications ? (
+                <Link
+                  href="/notifications"
+                  className={`relative rounded-full p-2 transition-colors ${
+                    activePage === "notifications"
+                      ? "bg-[#0047AB] text-white shadow-sm"
+                      : "text-[#0A3D7D] hover:bg-[#1B7CFF]/12"
+                  }`}
+                  aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 ? (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-[5px] rounded-full bg-[#E84F7A] text-white text-[10px] font-bold leading-none inline-flex items-center justify-center ring-2 ring-white shadow-sm">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  ) : null}
+                </Link>
+              ) : null}
               <Button
                 variant="outline"
                 className="h-9 px-3 md:px-4 border-[#e8a550]/70 text-[#b36b0f] hover:bg-[#e8a550]/12"

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getMatchTitle, getReelTitle } from "@/lib/match-title";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { Button } from "@/components/ui/button";
+import { ReelLikeButton } from "@/components/reel-like-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -63,8 +64,9 @@ const VOLLEYBALL_POSITIONS = [
   "Defensive Specialist",
 ];
 
-export default function ProfilePage() {
+function ProfilePageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isProfileEditOpen, setIsProfileEditOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
@@ -100,6 +102,8 @@ export default function ProfilePage() {
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [reels, setReels] = useState<ReelItem[]>([]);
+  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+  const [likedReelIds, setLikedReelIds] = useState<Set<string>>(new Set());
   const [selectedReel, setSelectedReel] = useState<ReelItem | null>(null);
   const [togglingReelId, setTogglingReelId] = useState<string | null>(null);
   const [reelFilter, setReelFilter] = useState<ReelFilter>("all");
@@ -266,6 +270,46 @@ export default function ProfilePage() {
   }, [reels, reelFilter, reelSort]);
 
   useEffect(() => {
+    const reelIds = reels.map((reel) => reel.id);
+    if (reelIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadLikeSummary = async () => {
+      try {
+        const res = await fetch(
+          `/api/reels/likes?ids=${encodeURIComponent(reelIds.join(","))}`,
+        );
+
+        if (!res.ok) return;
+
+        const data = (await res.json()) as {
+          counts?: Record<string, number>;
+          likedIds?: string[];
+        };
+
+        if (cancelled) return;
+
+        setLikeCounts(data.counts ?? {});
+        setLikedReelIds(new Set(data.likedIds ?? []));
+      } catch {
+        if (!cancelled) {
+          setLikeCounts({});
+          setLikedReelIds(new Set());
+        }
+      }
+    };
+
+    loadLikeSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reels]);
+
+  useEffect(() => {
     const load = async () => {
       const { data, error: sessionErr } = await supabase.auth.getSession();
       if (sessionErr) {
@@ -367,6 +411,16 @@ export default function ProfilePage() {
     };
     load();
   }, [router]);
+
+  // Deep-link: auto-open reel from ?reel=<id>
+  useEffect(() => {
+    const reelId = searchParams.get("reel");
+    if (!reelId || reels.length === 0) return;
+    const match = reels.find((r) => r.id === reelId);
+    if (match) {
+      setSelectedReel(match);
+    }
+  }, [searchParams, reels]);
 
   const validateUsername = (value: string): string | null => {
     if (!value) return "Username is required.";
@@ -810,76 +864,108 @@ export default function ProfilePage() {
 
                     {/* Card body */}
                     <div className="px-3 py-2.5">
-                      {editingReelId === reel.id ? (
-                        <div
-                          className="space-y-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Input
-                            autoFocus
-                            value={reelTitleDraft}
-                            onChange={(e) => setReelTitleDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                void saveInlineReelRename(reel);
-                                return;
-                              }
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          {editingReelId === reel.id ? (
+                            <div
+                              className="space-y-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Input
+                                autoFocus
+                                value={reelTitleDraft}
+                                onChange={(e) =>
+                                  setReelTitleDraft(e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    void saveInlineReelRename(reel);
+                                    return;
+                                  }
 
-                              if (e.key === "Escape") {
-                                e.preventDefault();
-                                skipReelBlurSaveRef.current = reel.id;
-                                cancelInlineReelRename();
-                              }
-                            }}
-                            onBlur={() => {
-                              if (skipReelBlurSaveRef.current === reel.id) {
-                                skipReelBlurSaveRef.current = null;
-                                return;
-                              }
-                              void saveInlineReelRename(reel);
-                            }}
-                            disabled={renamingReelId === reel.id}
-                            className="h-8"
-                            placeholder="Enter reel title"
-                          />
-                          <p className="text-[11px] text-gray-500">
-                            Enter to save, Esc to cancel
-                          </p>
+                                  if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    skipReelBlurSaveRef.current = reel.id;
+                                    cancelInlineReelRename();
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (skipReelBlurSaveRef.current === reel.id) {
+                                    skipReelBlurSaveRef.current = null;
+                                    return;
+                                  }
+                                  void saveInlineReelRename(reel);
+                                }}
+                                disabled={renamingReelId === reel.id}
+                                className="h-8"
+                                placeholder="Enter reel title"
+                              />
+                              <p className="text-[11px] text-gray-500">
+                                Enter to save, Esc to cancel
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="text-sm font-semibold text-gray-900 truncate inline-flex items-center gap-1.5 hover:text-[#0047AB] transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startInlineReelRename(reel);
+                                }}
+                                title="Click to rename"
+                              >
+                                <span className="truncate">
+                                  {getReelTitle(reel.title)}
+                                </span>
+                                <Pencil className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                              </button>
+                              <span className="text-[10px] text-gray-400">
+                                Edit
+                              </span>
+                            </div>
+                          )}
+                          {renamingReelId === reel.id && (
+                            <p className="text-[11px] text-[#0047AB] mt-1">
+                              Saving title...
+                            </p>
+                          )}
+                          {reelRenameFeedback?.reelId === reel.id && (
+                            <p
+                              className={`text-[11px] mt-1 ${
+                                reelRenameFeedback.kind === "success"
+                                  ? "text-green-700"
+                                  : "text-red-700"
+                              }`}
+                            >
+                              {reelRenameFeedback.message}
+                            </p>
+                          )}
                         </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            className="text-sm font-semibold text-gray-900 truncate inline-flex items-center gap-1.5 hover:text-[#0047AB] transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startInlineReelRename(reel);
-                            }}
-                            title="Click to rename"
-                          >
-                            <span className="truncate">{getReelTitle(reel.title)}</span>
-                            <Pencil className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                          </button>
-                          <span className="text-[10px] text-gray-400">Edit</span>
-                        </div>
-                      )}
-                      {renamingReelId === reel.id && (
-                        <p className="text-[11px] text-[#0047AB] mt-1">
-                          Saving title...
-                        </p>
-                      )}
-                      {reelRenameFeedback?.reelId === reel.id && (
-                        <p
-                          className={`text-[11px] mt-1 ${
-                            reelRenameFeedback.kind === "success"
-                              ? "text-green-700"
-                              : "text-red-700"
-                          }`}
-                        >
-                          {reelRenameFeedback.message}
-                        </p>
-                      )}
+                        <ReelLikeButton
+                          reelId={reel.id}
+                          initialCount={likeCounts[reel.id] ?? 0}
+                          initialLiked={likedReelIds.has(reel.id)}
+                          className="border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                          onLikeChange={(nextLiked, nextCount) => {
+                            setLikeCounts((prev) => ({
+                              ...prev,
+                              [reel.id]: nextCount,
+                            }));
+
+                            setLikedReelIds((prev) => {
+                              const next = new Set(prev);
+                              if (nextLiked) {
+                                next.add(reel.id);
+                              } else {
+                                next.delete(reel.id);
+                              }
+                              return next;
+                            });
+                          }}
+                        />
+                      </div>
                       {matchInfo && (
                         <p className="text-xs text-gray-500 mt-0.5 truncate">
                           🏐 {getMatchTitle(matchInfo)}
@@ -1183,5 +1269,13 @@ export default function ProfilePage() {
 
       <SiteFooter />
     </div>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense>
+      <ProfilePageInner />
+    </Suspense>
   );
 }
