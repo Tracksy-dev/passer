@@ -9,6 +9,7 @@ export interface Point {
   scoringTeam: "home" | "away"
   actionType: ActionType
   timestamp: number // Video timestamp in seconds
+  note?: string | null
 }
 
 // Set data structure

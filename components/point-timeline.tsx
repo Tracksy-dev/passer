@@ -150,6 +150,14 @@ export function PointTimeline({
                 <span className="text-xs text-gray-600 mt-1">
                   {point.homeScore}-{point.awayScore}
                 </span>
+                {point.note?.trim() ? (
+                  <span
+                    className="text-[11px] text-gray-600 mt-1 max-w-24 text-center leading-tight break-words"
+                    title={point.note}
+                  >
+                    {point.note}
+                  </span>
+                ) : null}
               </div>
             );
           })}

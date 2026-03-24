@@ -37,6 +37,7 @@ type HighlightPoint = {
   id: string;
   timestamp: number; // seconds
   action: HighlightAction;
+  note?: string | null;
   clipBefore?: number; // seconds to include before the timestamp
   clipAfter?: number; // seconds to include after the timestamp
 };
@@ -45,6 +46,7 @@ type MatchPointRow = {
   id: string;
   timestamp_seconds: number;
   label: string | null;
+  note: string | null;
   clip_before: number | null;
   clip_after: number | null;
 };
@@ -123,6 +125,7 @@ export default function MatchHighlightsPage() {
 
   const [selectedAction, setSelectedAction] =
     useState<HighlightAction>("spike");
+  const [noteDraft, setNoteDraft] = useState("");
 
   // Checkbox selection for reel generation
   const [selectedPointIds, setSelectedPointIds] = useState<Set<string>>(
@@ -131,9 +134,9 @@ export default function MatchHighlightsPage() {
   const [isMarking, setIsMarking] = useState(false);
 
   // Track which point IDs have unsaved offset edits
-  const [dirtyOffsetIds, setDirtyOffsetIds] = useState<Set<string>>(new Set());
+  const [dirtyPointIds, setDirtyPointIds] = useState<Set<string>>(new Set());
   const [isSavingOffsets, setIsSavingOffsets] = useState(false);
-  const hasUnsavedOffsets = dirtyOffsetIds.size > 0;
+  const hasUnsavedOffsets = dirtyPointIds.size > 0;
 
   // Clip-bounded playback: which point is actively playing + current video time
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
@@ -356,7 +359,7 @@ export default function MatchHighlightsPage() {
 
         const { data: pts, error: ptsErr } = await supabase
           .from("match_points")
-          .select("id, timestamp_seconds, label, clip_before, clip_after")
+          .select("id, timestamp_seconds, label, note, clip_before, clip_after")
           .eq("match_id", matchId)
           .order("timestamp_seconds", { ascending: true });
 
@@ -366,12 +369,13 @@ export default function MatchHighlightsPage() {
           id: p.id,
           timestamp: Number(p.timestamp_seconds),
           action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
+          note: p.note,
           clipBefore: p.clip_before ?? MARK_OFFSET_SECONDS,
           clipAfter: p.clip_after ?? MARK_OFFSET_SECONDS,
         }));
         setPoints(loaded);
         setSelectedPointIds(new Set(loaded.map((p) => p.id)));
-        setDirtyOffsetIds(new Set());
+        setDirtyPointIds(new Set());
       } catch (e) {
         setPageError(e instanceof Error ? e.message : "Failed to load match.");
       } finally {
@@ -389,6 +393,7 @@ export default function MatchHighlightsPage() {
 
     const now = playerRef.current?.getCurrentTime() ?? 0;
     const t = Math.max(0, now - MARK_OFFSET_SECONDS);
+    const trimmedNote = noteDraft.trim();
 
     // Seek back so the user can see the captured moment
     playerRef.current?.seekTo(t);
@@ -411,10 +416,11 @@ export default function MatchHighlightsPage() {
           user_id: user.id,
           timestamp_seconds: t,
           label: action ?? prevAction,
+          note: trimmedNote.length > 0 ? trimmedNote : null,
           clip_before: MARK_OFFSET_SECONDS,
           clip_after: MARK_OFFSET_SECONDS,
         })
-        .select("id, timestamp_seconds, label, clip_before, clip_after")
+        .select("id, timestamp_seconds, label, note, clip_before, clip_after")
         .single();
 
       if (insErr) throw insErr;
@@ -423,6 +429,7 @@ export default function MatchHighlightsPage() {
         id: inserted.id,
         timestamp: Number(inserted.timestamp_seconds),
         action: (inserted.label as HighlightAction) ?? "other",
+        note: inserted.note,
         clipBefore: MARK_OFFSET_SECONDS,
         clipAfter: MARK_OFFSET_SECONDS,
       };
@@ -432,6 +439,7 @@ export default function MatchHighlightsPage() {
       setSelectedPointIds((prev) => new Set(prev).add(newPoint.id));
       lastInsertedIdRef.current = newPoint.id;
       setCanUndo(true);
+      setNoteDraft("");
 
       toast.push(
         "success",
@@ -448,20 +456,20 @@ export default function MatchHighlightsPage() {
   // Update clip offsets for a point locally (mark dirty; no DB write yet)
   const updatePointOffset = (
     id: string,
-    updates: { clipBefore?: number; clipAfter?: number },
+    updates: { clipBefore?: number; clipAfter?: number; note?: string | null },
   ) => {
     setPoints((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...updates } : p)),
     );
-    setDirtyOffsetIds((prev) => new Set(prev).add(id));
+    setDirtyPointIds((prev) => new Set(prev).add(id));
   };
 
   // Bulk-save all dirty offsets to DB
   const applyOffsets = async () => {
-    if (dirtyOffsetIds.size === 0) return;
+    if (dirtyPointIds.size === 0) return;
     setIsSavingOffsets(true);
     try {
-      const dirty = points.filter((p) => dirtyOffsetIds.has(p.id));
+      const dirty = points.filter((p) => dirtyPointIds.has(p.id));
       // Supabase JS doesn't support batch-updating different rows in one call,
       // so we fire updates in parallel per dirty point.
       const results = await Promise.all(
@@ -471,6 +479,7 @@ export default function MatchHighlightsPage() {
             .update({
               clip_before: p.clipBefore ?? MARK_OFFSET_SECONDS,
               clip_after: p.clipAfter ?? MARK_OFFSET_SECONDS,
+              note: p.note?.trim() ? p.note.trim() : null,
             })
             .eq("id", p.id),
         ),
@@ -479,8 +488,8 @@ export default function MatchHighlightsPage() {
       if (failed.length > 0) {
         toast.push("error", `Failed to save ${failed.length} offset(s)`);
       } else {
-        toast.push("success", `Saved offsets for ${dirty.length} point(s)`);
-        setDirtyOffsetIds(new Set());
+        toast.push("success", `Saved changes for ${dirty.length} point(s)`);
+        setDirtyPointIds(new Set());
       }
     } catch (e) {
       console.error(e);
@@ -540,6 +549,11 @@ export default function MatchHighlightsPage() {
       if (error) throw error;
 
       setPoints((prev) => prev.filter((p) => p.id !== id));
+      setDirtyPointIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       setSelectedPointIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -797,6 +811,15 @@ export default function MatchHighlightsPage() {
                     })}
                   </div>
 
+                  <div className="mt-3">
+                    <Input
+                      value={noteDraft}
+                      onChange={(e) => setNoteDraft(e.target.value)}
+                      placeholder="Add note for next marked point (optional)"
+                      className="h-9"
+                    />
+                  </div>
+
                   <p className="mt-3 text-xs text-gray-500">
                     Pick an action, then hit “Mark Highlight”. We save 5s
                     earlier. You can also press number keys to capture directly.
@@ -867,8 +890,8 @@ export default function MatchHighlightsPage() {
                 {hasUnsavedOffsets && (
                   <div className="px-4 py-3 border-b border-amber-200 bg-amber-50 flex items-center justify-between gap-3">
                     <span className="text-xs font-medium text-amber-800">
-                      {dirtyOffsetIds.size} unsaved offset change
-                      {dirtyOffsetIds.size > 1 ? "s" : ""}
+                      {dirtyPointIds.size} unsaved point change
+                      {dirtyPointIds.size > 1 ? "s" : ""}
                     </span>
                     <Button
                       onClick={() => void applyOffsets()}
@@ -1038,6 +1061,19 @@ export default function MatchHighlightsPage() {
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
+                            </div>
+
+                            <div className="mt-3">
+                              <Input
+                                value={p.note ?? ""}
+                                onChange={(e) =>
+                                  updatePointOffset(p.id, {
+                                    note: e.target.value,
+                                  })
+                                }
+                                placeholder="Add note (optional)"
+                                className="h-8 text-xs"
+                              />
                             </div>
 
                             {/* Clip progress bar */}

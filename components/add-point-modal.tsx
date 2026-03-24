@@ -23,6 +23,7 @@ interface AddPointModalProps {
     awayScore: number;
     actionType: ActionType;
     timestamp: number;
+    note?: string | null;
   }) => void;
   homeTeam: string;
   awayTeam: string;
@@ -39,16 +40,19 @@ export function AddPointModal({
   const [awayScore, setAwayScore] = useState(0);
   const [actionType, setActionType] = useState<ActionType>("serve");
   const [timestamp, setTimestamp] = useState(30);
+  const [note, setNote] = useState("");
 
   if (!isOpen) return null;
 
   const handleSubmit = () => {
+    const trimmedNote = note.trim();
     onAddPoint({
       scoringTeam,
       homeScore,
       awayScore,
       actionType,
       timestamp,
+      note: trimmedNote.length > 0 ? trimmedNote : null,
     });
     onClose();
   };
@@ -182,6 +186,21 @@ export function AddPointModal({
             <p className="text-xs text-gray-500">
               Enter the time in the video when this point was scored
             </p>
+          </div>
+
+          {/* Optional Note */}
+          <div className="space-y-2">
+            <Label htmlFor="note" className="text-sm font-medium text-gray-700">
+              Note (optional)
+            </Label>
+            <Input
+              id="note"
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Short coaching note"
+              className="h-11"
+            />
           </div>
         </div>
 
