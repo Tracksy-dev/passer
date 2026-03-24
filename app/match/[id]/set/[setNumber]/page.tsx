@@ -639,7 +639,7 @@ export default function MatchHighlightsPage() {
       <SiteHeader showNav={true} activePage="dashboard" />
 
       <main className="flex-1 bg-gray-50 px-4 md:px-6 lg:px-8 py-6 md:py-8">
-        <div className="max-w-6xl mx-auto space-y-6">
+        <div className="max-w-[88rem] mx-auto space-y-6">
           {/* Header */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 md:gap-4 flex-wrap">
@@ -727,9 +727,9 @@ export default function MatchHighlightsPage() {
           </div>
 
           {/* Layout: video left, highlights right */}
-          <div className="grid md:grid-cols-5 gap-4 md:gap-6 items-start">
+          <div className="grid md:grid-cols-12 gap-4 md:gap-6 items-start">
             {/* Video (2/3) */}
-            <div className="md:col-span-3 space-y-4">
+            <div className="md:col-span-8 space-y-4">
               <VideoPlayer
                 ref={playerRef}
                 title="Match Replay"
@@ -756,7 +756,7 @@ export default function MatchHighlightsPage() {
             </div>
 
             {/* Highlights panel (1/3) */}
-            <div className="md:col-span-2">
+            <div className="md:col-span-4">
               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
