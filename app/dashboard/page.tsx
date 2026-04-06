@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Search, Trash2, Pencil } from "lucide-react";
 import { SiteHeader } from "@/components/ui/site-header";
 import { SiteFooter } from "@/components/ui/site-footer";
+import { OnboardingBanner } from "@/components/ui/onboarding-banner";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 
@@ -271,6 +272,9 @@ export default function DashboardPage() {
       {/* Main Content */}
       <main className="page-shell flex-1 px-4 md:px-6 lg:px-8 py-6 md:py-8">
         <div className="max-w-7xl mx-auto space-y-6 md:space-y-8">
+          {/* Onboarding Banner */}
+          <OnboardingBanner />
+
           {/* Search and Filter Section */}
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
