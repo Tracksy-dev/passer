@@ -3,7 +3,7 @@
 import { PasserLogo } from "./passer-logo";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Bell, Compass, LogOut } from "lucide-react";
+import { Bell, Compass, LogOut, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
@@ -17,6 +17,7 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
   const prefersReducedMotion = useReducedMotion();
   const [unreadCount, setUnreadCount] = useState(0);
   const [canShowNotifications, setCanShowNotifications] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (!showNav) return;
@@ -39,6 +40,16 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
 
         if (!cancelled) {
           setCanShowNotifications(true);
+        }
+
+        // Check admin status
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("is_admin")
+          .eq("id", session.user.id)
+          .single();
+        if (!cancelled) {
+          setIsAdmin(profile?.is_admin === true);
         }
 
         const res = await fetch("/api/notifications/unread-count", {
@@ -171,6 +182,15 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
                   Profile
                 </motion.span>
               </Link>
+              {isAdmin ? (
+                <Link
+                  href="/admin"
+                  className="rounded-full px-3 py-1.5 text-sm md:text-[14px] transition-colors text-[#0A3D7D] hover:bg-[#1B7CFF]/12 flex items-center gap-1.5"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  Admin
+                </Link>
+              ) : null}
               {canShowNotifications ? (
                 <Link
                   href="/notifications"

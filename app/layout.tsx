@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Sora, Space_Mono } from "next/font/google";
 import "./globals.css";
 import { PageTransition } from "@/components/ui/page-transition";
+import { FeedbackButton } from "@/components/ui/feedback-button";
 import { Toaster } from "sonner";
 
 const sora = Sora({
@@ -34,6 +35,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <PageTransition>{children}</PageTransition>
+        <FeedbackButton />
         <Toaster
           position="top-right"
           toastOptions={{
