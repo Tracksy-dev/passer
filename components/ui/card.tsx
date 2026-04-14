@@ -44,6 +44,7 @@ function Card({ className, children, style, ...props }: React.ComponentProps<"di
         "bg-card text-card-foreground flex flex-col gap-6 rounded-2xl border border-white/70 py-6 backdrop-blur-md shadow-[0_18px_45px_-34px_rgba(0,37,92,0.92)] hover-border-glow ambient-glow",
         className,
       )}
+      {...props}
       style={
         prefersReducedMotion
           ? style

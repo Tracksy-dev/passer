@@ -59,7 +59,7 @@ export async function GET() {
   // Fetch usernames for each submission
   const userIds = [...new Set((feedback ?? []).map((f) => f.user_id).filter(Boolean))];
 
-  let profileMap: Record<string, string> = {};
+  const profileMap: Record<string, string> = {};
   if (userIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")

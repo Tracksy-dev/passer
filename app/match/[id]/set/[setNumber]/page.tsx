@@ -71,16 +71,6 @@ const ACTIONS: HighlightAction[] = [
 
 const MARK_OFFSET_SECONDS = 5;
 
-const ACTION_TIMELINE_COLORS: Record<HighlightAction, string> = {
-  spike: "#EF4444",
-  set: "#06B6D4",
-  block: "#3B82F6",
-  pass: "#22C55E",
-  ace: "#F59E0B",
-  save: "#8B5CF6",
-  other: "#9CA3AF",
-};
-
 function formatTime(s: number) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
