@@ -1,102 +1,78 @@
-import os
-import cv2
-import sys
+import argparse
 import json
-import torch
+import os
 import tempfile
-import requests
-from ultralytics import YOLO
 from collections import defaultdict, deque
+
+import cv2
+import requests
+import torch
+from ultralytics import YOLO
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ============================================================
-# PATHS
-# ============================================================
-VIDEO_INPUT_PATH = sys.argv[1] if len(sys.argv) > 1 else None
-
-if not VIDEO_INPUT_PATH:
-    raise ValueError("No video path or URL was provided to the Python script.")
-
-print("Received video input:", VIDEO_INPUT_PATH)
-
-def ensure_local_video(path_or_url: str) -> str:
-    if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-        temp_file.close()
-
-        print("Downloading remote video...")
-        response = requests.get(path_or_url, stream=True, timeout=120)
-        response.raise_for_status()
-
-        with open(temp_file.name, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
-
-        print("Downloaded to:", temp_file.name)
-        return temp_file.name
-
-    return path_or_url
-
-VIDEO_INPUT_PATH = ensure_local_video(VIDEO_INPUT_PATH)
-print("Using local video file:", VIDEO_INPUT_PATH)
-
-# ============================================================
-# OUTPUT PATHS (FIXED TO Ai-Dev FOLDER)
+# OUTPUT PATHS
 # ============================================================
 OUTPUT_DIR = os.path.join(BASE_DIR, "runs", "video_output_pose")
+DEFAULT_OUTPUT_JSON = os.path.join(BASE_DIR, "runs", "output_smash_detection.json")
 OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "smash_detection_output.mp4")
-OUTPUT_JSON = os.path.join(BASE_DIR, "runs","output_smash_detection.json")
+WRITE_OUTPUT_VIDEO = False
 
 # ============================================================
-# POSE MODEL (use stronger if possible)
+# MODEL + DETECTION SETTINGS
 # ============================================================
-POSE_MODEL = "yolov8s-pose.pt"    # try yolov8m-pose.pt if you have GPU
-
-# ============================================================
-# TRACKER (reduces warnings & improves ID stability)
-# ============================================================
+POSE_MODEL = "yolov8s-pose.pt"
 TRACKER_CFG = "bytetrack.yaml"
-
-# ============================================================
-# DETECTION SETTINGS
-# ============================================================
-CONF_THRES = 0.25   # LOWER => more poses detected
+CONF_THRES = 0.25
 IOU_THRES = 0.6
 IMGSZ = 960
 MAX_DET = 25
 
 # ============================================================
-# HIGH-RECALL HEURISTIC SETTINGS
-# (These are intentionally permissive to catch real smashes first.)
+# HEURISTIC SETTINGS
 # ============================================================
-KP_CONF_MIN = 0.25     # LOWER => accept more keypoints (more noise too)
-
-HISTORY = 10           # wrist history length
-COOLDOWN_FRAMES = 12   # draw box for a bit after trigger
-
-# "Arm raised" gate (permissive)
-HEAD_MARGIN = 6        # wrist slightly above nose counts
-SHOULDER_MARGIN = -5   # wrist just above shoulder counts (very permissive)
-
-# Swing trigger (permissive)
-DOWN_SPEED_THRES = 5   # px/frame downward speed
-DOWN_TOTAL_THRES = 12  # px total drop from peak
-
-MIN_TRACK_AGE = 4      # allow earlier triggering
+KP_CONF_MIN = 0.25
+HISTORY = 10
+COOLDOWN_FRAMES = 12
+HEAD_MARGIN = 6
+SHOULDER_MARGIN = -5
+DOWN_SPEED_THRES = 5
+DOWN_TOTAL_THRES = 12
+MIN_TRACK_AGE = 4
 
 # ============================================================
 # COCO 17 KEYPOINT INDICES
 # ============================================================
 NOSE = 0
 L_SHOULDER, R_SHOULDER = 5, 6
-L_ELBOW, R_ELBOW = 7, 8
 L_WRIST, R_WRIST = 9, 10
 
 # ============================================================
-# JSON helpers
+# Per-track state
 # ============================================================
+track_age = defaultdict(int)
+cooldown = defaultdict(int)
+wrist_hist = defaultdict(lambda: deque(maxlen=HISTORY))
+
+
+def emit_progress(status, message, progress=None, processed_frames=None, total_frames=None):
+    payload = {
+        "type": "progress",
+        "status": status,
+        "message": message,
+    }
+
+    if progress is not None:
+        payload["progress"] = int(max(0, min(100, progress)))
+    if processed_frames is not None:
+        payload["processed_frames"] = int(max(0, processed_frames))
+    if total_frames is not None:
+        payload["total_frames"] = int(max(0, total_frames))
+
+    print(json.dumps(payload), flush=True)
+
+
 def format_timestamp_ms(ms: float) -> str:
     if ms is None:
         ms = 0
@@ -106,64 +82,43 @@ def format_timestamp_ms(ms: float) -> str:
     centi = (ms % 1000) // 10
     return f"{minutes}.{seconds:02d}.{centi:02d}"
 
-def load_or_create_json(path: str) -> dict:
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                d = json.load(f)
-            if isinstance(d, dict):
-                return d
-        except Exception:
-            pass
-    return {}
 
 def save_json(d: dict, path: str):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(d, f, indent=2)
 
-# ============================================================
-# Per-track state
-# ============================================================
-track_age = defaultdict(int)
-cooldown = defaultdict(int)
-
-# Wrist history: store chosen wrist y per frame
-wrist_hist = defaultdict(lambda: deque(maxlen=HISTORY))  # (frame_idx, wrist_y)
 
 def kp_ok(c):
     return c is not None and c >= KP_CONF_MIN
+
 
 def get_kp(xy, conf, idx):
     x, y = xy[idx]
     c = conf[idx]
     return float(x), float(y), float(c)
 
+
 def choose_wrist(kp_xy, kp_conf):
-    """
-    Choose the wrist with higher confidence. Return (wrist_y, wrist_conf, shoulder_y, shoulder_conf, nose_y, nose_conf)
-    """
     _, ny, nc = get_kp(kp_xy, kp_conf, NOSE)
 
-    _, wyL, wcL = get_kp(kp_xy, kp_conf, L_WRIST)
-    _, wyR, wcR = get_kp(kp_xy, kp_conf, R_WRIST)
+    _, wy_l, wc_l = get_kp(kp_xy, kp_conf, L_WRIST)
+    _, wy_r, wc_r = get_kp(kp_xy, kp_conf, R_WRIST)
 
-    _, syL, scL = get_kp(kp_xy, kp_conf, L_SHOULDER)
-    _, syR, scR = get_kp(kp_xy, kp_conf, R_SHOULDER)
+    _, sy_l, sc_l = get_kp(kp_xy, kp_conf, L_SHOULDER)
+    _, sy_r, sc_r = get_kp(kp_xy, kp_conf, R_SHOULDER)
 
-    # default to best wrist
-    if wcR >= wcL:
-        wy, wc = wyR, wcR
-        sy, sc = syR, scR
+    if wc_r >= wc_l:
+        wy, wc = wy_r, wc_r
+        sy, sc = sy_r, sc_r
     else:
-        wy, wc = wyL, wcL
-        sy, sc = syL, scL
+        wy, wc = wy_l, wc_l
+        sy, sc = sy_l, sc_l
 
     return wy, wc, sy, sc, ny, nc
 
+
 def is_arm_raised(wy, wc, sy, sc, ny, nc):
-    """
-    Permissive: arm considered raised if wrist above shoulder OR wrist above nose.
-    """
     if not (kp_ok(wc) and (kp_ok(sc) or kp_ok(nc))):
         return False
 
@@ -171,52 +126,73 @@ def is_arm_raised(wy, wc, sy, sc, ny, nc):
     above_head = kp_ok(nc) and (wy < ny - HEAD_MARGIN)
     return above_shoulder or above_head
 
+
 def swing_down_detected(tid, frame_idx, wy):
-    """
-    Detect downward swing using recent wrist history:
-    - recent downward speed over last step
-    - total drop from peak within HISTORY window
-    """
     wrist_hist[tid].append((frame_idx, wy))
     if len(wrist_hist[tid]) < 4:
         return False
 
-    # speed (last 2)
     (f1, y1), (f2, y2) = wrist_hist[tid][-2], wrist_hist[tid][-1]
     df = max(1, f2 - f1)
-    down_speed = (y2 - y1) / df  # + means moving down
+    down_speed = (y2 - y1) / df
 
     ys = [y for (_, y) in wrist_hist[tid]]
-    peak_high = min(ys)          # smallest y is highest wrist position
+    peak_high = min(ys)
     total_drop = wy - peak_high
 
     return (down_speed >= DOWN_SPEED_THRES) and (total_drop >= DOWN_TOTAL_THRES)
 
-# ============================================================
-# Main
-# ============================================================
-def run(video_path):
+
+def ensure_local_video(path_or_url: str) -> str:
+    if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
+        emit_progress("downloading", "Downloading video", 5)
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        temp_file.close()
+
+        response = requests.get(path_or_url, stream=True, timeout=120)
+        response.raise_for_status()
+
+        with open(temp_file.name, "wb") as f:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+
+        emit_progress("downloading", "Download complete", 10)
+        return temp_file.name
+
+    emit_progress("downloading", "Using local video file", 10)
+    return path_or_url
+
+
+def run(video_path, output_json_path):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    cap = cv2.VideoCapture(video_path)
+    local_video = ensure_local_video(video_path)
+
+    cap = cv2.VideoCapture(local_video)
     if not cap.isOpened():
-        raise RuntimeError(f"❌ Could not open video: {video_path}")
+        raise RuntimeError(f"Could not open video: {local_video}")
 
     fps = cap.get(cv2.CAP_PROP_FPS)
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    cap.release()
 
-    out = cv2.VideoWriter(OUTPUT_VIDEO, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    if not fps or fps <= 0:
+        fps = 30.0
 
+    emit_progress("loading_model", "Loading model", 15)
     model = YOLO(POSE_MODEL)
 
-    log = load_or_create_json(OUTPUT_JSON)
-    if "smash" not in log or not isinstance(log.get("smash"), list):
-        log["smash"] = []
-    prev_present = False
+    emit_progress(
+        "processing",
+        "Analyzing frames",
+        20,
+        processed_frames=0,
+        total_frames=total_frames,
+    )
 
     stream = model.track(
-        source=video_path,
+        source=local_video,
         stream=True,
         persist=True,
         verbose=False,
@@ -227,17 +203,27 @@ def run(video_path):
         tracker=TRACKER_CFG,
     )
 
+    out = None
+    log = {"smash": []}
+    prev_present = False
     frame_idx = 0
 
     for result in stream:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        t_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
+        t_ms = (frame_idx / fps) * 1000.0
         t_str = format_timestamp_ms(t_ms)
 
-        # cooldown tick
+        frame = None
+        if WRITE_OUTPUT_VIDEO and result.orig_img is not None:
+            frame = result.orig_img.copy()
+            if out is None:
+                h, w = frame.shape[:2]
+                out = cv2.VideoWriter(
+                    OUTPUT_VIDEO,
+                    cv2.VideoWriter_fourcc(*"mp4v"),
+                    fps,
+                    (w, h),
+                )
+
         for tid in list(cooldown.keys()):
             cooldown[tid] -= 1
             if cooldown[tid] <= 0:
@@ -246,9 +232,19 @@ def run(video_path):
         smash_present_now = False
 
         if result.boxes is None or len(result.boxes) == 0 or result.keypoints is None:
-            out.write(frame)
-            prev_present = False
+            if WRITE_OUTPUT_VIDEO and out is not None and frame is not None:
+                out.write(frame)
+
             frame_idx += 1
+            if total_frames > 0 and frame_idx % 60 == 0:
+                progress = 20 + int((frame_idx / total_frames) * 70)
+                emit_progress(
+                    "processing",
+                    "Analyzing frames",
+                    progress,
+                    processed_frames=frame_idx,
+                    total_frames=total_frames,
+                )
             continue
 
         boxes = result.boxes.xyxy
@@ -258,7 +254,6 @@ def run(video_path):
 
         boxes_np = boxes.cpu().numpy().astype(int)
         ids_np = ids.cpu().numpy().astype(int)
-
         kp_xy = result.keypoints.xy.cpu().numpy()
         kp_cf = result.keypoints.conf.cpu().numpy()
 
@@ -268,47 +263,63 @@ def run(video_path):
                 continue
 
             wy, wc, sy, sc, ny, nc = choose_wrist(kp_xy[i], kp_cf[i])
-
-            # 1) Arm raised gate (permissive)
             raised = is_arm_raised(wy, wc, sy, sc, ny, nc)
-
-            # 2) Swing down gate
             swing = swing_down_detected(tid, frame_idx, wy)
 
-            # Trigger smash if we see raised AND swing down
             if raised and swing:
                 cooldown[tid] = COOLDOWN_FRAMES
 
-            # Draw if recently triggered
             if cooldown.get(tid, 0) > 0:
                 smash_present_now = True
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 4)
-                cv2.putText(
-                    frame,
-                    "smash",
-                    (x1, max(20, y1 - 10)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    (0, 255, 0),
-                    3,
-                )
+                if WRITE_OUTPUT_VIDEO and frame is not None:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 4)
+                    cv2.putText(
+                        frame,
+                        "smash",
+                        (x1, max(20, y1 - 10)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0,
+                        (0, 255, 0),
+                        3,
+                    )
 
-        # rising-edge log
         if smash_present_now and not prev_present:
             if len(log["smash"]) == 0 or log["smash"][-1] != t_str:
                 log["smash"].append(t_str)
 
         prev_present = smash_present_now
-        out.write(frame)
+
+        if WRITE_OUTPUT_VIDEO and out is not None and frame is not None:
+            out.write(frame)
+
         frame_idx += 1
+        if total_frames > 0 and frame_idx % 60 == 0:
+            progress = 20 + int((frame_idx / total_frames) * 70)
+            emit_progress(
+                "processing",
+                "Analyzing frames",
+                progress,
+                processed_frames=frame_idx,
+                total_frames=total_frames,
+            )
 
-    cap.release()
-    out.release()
-    save_json(log, OUTPUT_JSON)
+    emit_progress("finalizing", "Finalizing results", 95)
 
-    print("✅ Video saved:", OUTPUT_VIDEO)
-    print("✅ Log saved:", OUTPUT_JSON)
+    if out is not None:
+        out.release()
+
+    save_json(log, output_json_path)
+
+    emit_progress("completed", "Completed", 100, processed_frames=frame_idx, total_frames=total_frames)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("video_input_path")
+    parser.add_argument("--output-json", default=DEFAULT_OUTPUT_JSON)
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-
-    run(VIDEO_INPUT_PATH)
+    args = parse_args()
+    run(args.video_input_path, args.output_json)

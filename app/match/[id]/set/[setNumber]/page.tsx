@@ -59,6 +59,32 @@ type ToastItem = {
   message: string;
 };
 
+type AiSmashProjectPoint = {
+  timestamp_seconds: number;
+  label?: string;
+  note?: string;
+};
+
+type AiResultPayload = {
+  success: boolean;
+  smashRaw?: unknown;
+  smashSeconds?: unknown;
+  smashProjectPoints?: unknown;
+  cached?: boolean;
+};
+
+type AiJobRow = {
+  id: string;
+  status: string;
+  progress: number | null;
+  message: string | null;
+  processed_frames: number | null;
+  total_frames: number | null;
+  result_json: AiResultPayload | null;
+  error_text: string | null;
+  finished_at: string | null;
+};
+
 const ACTIONS: HighlightAction[] = [
   "spike",
   "set",
@@ -88,7 +114,6 @@ export default function MatchHighlightsPage() {
   const setNumber = parseInt(params.setNumber as string, 10) || 1;
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
-  const aiPlayerRef = useRef<VideoPlayerHandle | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -102,8 +127,18 @@ export default function MatchHighlightsPage() {
     videoUrl: string | null;
   } | null>(null);
 
-  const [smashVideoUrl, setSmashVideoUrl] = useState<string | null>(null);
   const [isGeneratingSmashes, setIsGeneratingSmashes] = useState(false);
+  const [aiSmashPoints, setAiSmashPoints] = useState<AiSmashProjectPoint[]>([]);
+  const [isImportingAiSmashes, setIsImportingAiSmashes] = useState(false);
+  const [aiJobId, setAiJobId] = useState<string | null>(null);
+  const [aiJobStatus, setAiJobStatus] = useState<string | null>(null);
+  const [aiJobProgress, setAiJobProgress] = useState<number>(0);
+  const [aiJobMessage, setAiJobMessage] = useState<string>("Idle");
+  const [aiJobProcessedFrames, setAiJobProcessedFrames] = useState<number | null>(null);
+  const [aiJobTotalFrames, setAiJobTotalFrames] = useState<number | null>(null);
+  const [aiJobError, setAiJobError] = useState<string | null>(null);
+  const [hasDismissedCompletedJob, setHasDismissedCompletedJob] =
+    useState(false);
   const [isEditingMatchTitle, setIsEditingMatchTitle] = useState(false);
   const [matchNameDraft, setMatchNameDraft] = useState("");
   const [isSavingMatchTitle, setIsSavingMatchTitle] = useState(false);
@@ -144,6 +179,12 @@ export default function MatchHighlightsPage() {
   const [canUndo, setCanUndo] = useState(false);
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const aiJobStorageKey = useMemo(
+    () => `ai-smash-job:${matchId}`,
+    [matchId]
+  );
+  const lastCompletedJobToastRef = useRef<string | null>(null);
 
   const toast = {
     push: (kind: ToastKind, message: string) => {
@@ -482,6 +523,217 @@ export default function MatchHighlightsPage() {
     }
   };
 
+  const normalizeAiPoints = (payload: AiResultPayload): AiSmashProjectPoint[] => {
+    if (!Array.isArray(payload.smashProjectPoints)) return [];
+
+    const mapped: Array<AiSmashProjectPoint | null> = payload.smashProjectPoints.map(
+      (p: unknown) => {
+        if (!p || typeof p !== "object") return null;
+        const candidate = p as {
+          timestamp_seconds?: unknown;
+          label?: unknown;
+          note?: unknown;
+        };
+        const ts = Number(candidate.timestamp_seconds);
+        if (!Number.isFinite(ts)) return null;
+
+        return {
+          timestamp_seconds: ts,
+          label: typeof candidate.label === "string" ? candidate.label : "smash",
+          note:
+            typeof candidate.note === "string"
+              ? candidate.note
+              : "AI detected smash",
+        };
+      }
+    );
+
+    return mapped.filter(
+      (p: AiSmashProjectPoint | null): p is AiSmashProjectPoint => p !== null
+    );
+  };
+
+  const applyAiResult = (payload: AiResultPayload, jobId?: string) => {
+    const aiPoints = normalizeAiPoints(payload);
+    const aiSeconds = Array.isArray(payload.smashSeconds)
+      ? payload.smashSeconds
+      : [];
+    const count = aiPoints.length || aiSeconds.length;
+
+    setAiSmashPoints(aiPoints);
+
+    if (jobId && lastCompletedJobToastRef.current === jobId) {
+      return;
+    }
+
+    if (jobId) {
+      lastCompletedJobToastRef.current = jobId;
+    }
+
+    toast.push(
+      "success",
+      count > 0
+        ? `Detected ${count} smash timestamp${count > 1 ? "s" : ""}`
+        : "No smash timestamps detected"
+    );
+  };
+
+  const dismissAiJobCard = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(aiJobStorageKey);
+    }
+
+    setAiJobId(null);
+    setAiJobStatus(null);
+    setAiJobProgress(0);
+    setAiJobMessage("Idle");
+    setAiJobProcessedFrames(null);
+    setAiJobTotalFrames(null);
+    setAiJobError(null);
+    setHasDismissedCompletedJob(true);
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedJobId = localStorage.getItem(aiJobStorageKey);
+    if (savedJobId) {
+      setAiJobId(savedJobId);
+      setHasDismissedCompletedJob(false);
+    }
+  }, [aiJobStorageKey]);
+
+  useEffect(() => {
+    if (!aiJobId || hasDismissedCompletedJob) return;
+
+    let cancelled = false;
+
+    const pollJob = async () => {
+      try {
+        const res = await fetch(`/api/ai/jobs/${aiJobId}`);
+        const data = (await res.json()) as {
+          success?: boolean;
+          error?: string;
+          job?: AiJobRow;
+        };
+
+        if (cancelled) return;
+        if (!data.success || !data.job) return;
+
+        const job = data.job;
+        setAiJobStatus(job.status);
+        setAiJobProgress(job.progress ?? 0);
+        setAiJobMessage(job.message ?? "Working...");
+        setAiJobProcessedFrames(job.processed_frames ?? null);
+        setAiJobTotalFrames(job.total_frames ?? null);
+        setAiJobError(job.error_text ?? null);
+
+        if (job.result_json?.success) {
+          applyAiResult(job.result_json, job.id);
+        }
+
+        if (job.status === "completed" || job.status === "failed") {
+          return;
+        }
+      } catch {
+        if (!cancelled) {
+          setAiJobMessage("Unable to fetch AI job status");
+        }
+      }
+
+      if (!cancelled) {
+        window.setTimeout(() => {
+          void pollJob();
+        }, 1500);
+      }
+    };
+
+    void pollJob();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aiJobId, hasDismissedCompletedJob]);
+
+  const importAiSmashPoints = async () => {
+    if (aiSmashPoints.length === 0 || isImportingAiSmashes) return;
+
+    try {
+      setIsImportingAiSmashes(true);
+
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+
+      if (userErr) throw userErr;
+      if (!user) throw new Error("Not logged in.");
+
+      const tolerance = 0.01;
+      const toInsert = aiSmashPoints.filter((ai) => {
+        return !points.some(
+          (p) =>
+            Math.abs(p.timestamp - ai.timestamp_seconds) <= tolerance &&
+            String(p.action).toLowerCase() === "smash"
+        );
+      });
+
+      if (toInsert.length === 0) {
+        toast.push("success", "All detected smashes are already imported");
+        return;
+      }
+
+      const payload = toInsert.map((ai) => ({
+        match_id: matchId,
+        user_id: user.id,
+        timestamp_seconds: ai.timestamp_seconds,
+        label: "smash",
+        note: ai.note ?? "AI detected smash",
+        clip_before: MARK_OFFSET_SECONDS,
+        clip_after: MARK_OFFSET_SECONDS,
+      }));
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from("match_points")
+        .insert(payload)
+        .select("id, timestamp_seconds, label, note, clip_before, clip_after");
+
+      if (insertErr) throw insertErr;
+
+      const newPoints: HighlightPoint[] = ((inserted ?? []) as MatchPointRow[]).map(
+        (p) => ({
+          id: p.id,
+          timestamp: Number(p.timestamp_seconds),
+          action: ((p.label as HighlightAction) ?? "other") as HighlightAction,
+          note: p.note,
+          clipBefore: p.clip_before ?? MARK_OFFSET_SECONDS,
+          clipAfter: p.clip_after ?? MARK_OFFSET_SECONDS,
+        })
+      );
+
+      if (newPoints.length > 0) {
+        setPoints((prev) => [...prev, ...newPoints]);
+        setSelectedPointIds((prev) => {
+          const next = new Set(prev);
+          newPoints.forEach((p) => next.add(p.id));
+          return next;
+        });
+      }
+
+      const skipped = aiSmashPoints.length - toInsert.length;
+      toast.push(
+        "success",
+        `Imported ${toInsert.length} AI smash point${
+          toInsert.length > 1 ? "s" : ""
+        }${skipped > 0 ? ` (${skipped} already existed)` : ""}`
+      );
+    } catch (err) {
+      console.error("Failed to import AI smashes", err);
+      toast.push("error", "Failed to import AI smashes");
+    } finally {
+      setIsImportingAiSmashes(false);
+    }
+  };
+
   const handleVideoTimeUpdate = useCallback((time: number) => {
     setCurrentVideoTime(time);
     const clip = activeClipRef.current;
@@ -736,26 +988,6 @@ export default function MatchHighlightsPage() {
                 />
               </div>
 
-              {smashVideoUrl && (
-                <div className="space-y-4">
-                  <VideoPlayer
-                    ref={aiPlayerRef}
-                    title="(Beta Ai) Smash detection"
-                    src={smashVideoUrl}
-                    onTimeUpdate={handleVideoTimeUpdate}
-                    currentTime={currentVideoTime}
-                    onDurationChange={setVideoDuration}
-                    activeMarkerId={activeClipId ?? selectedPointId}
-                    onMarkerClick={handleMarkerClick}
-                    onMarkerAdjust={handleMarkerAdjust}
-                    onMarkPoint={() => {
-                      void markHighlight();
-                    }}
-                    markDisabled={isMarking}
-                    isMarking={isMarking}
-                  />
-                </div>
-              )}
             </div>
 
             {/* Highlights panel (1/3) */}
@@ -776,10 +1008,18 @@ export default function MatchHighlightsPage() {
                       <Button
                         type="button"
                         className="bg-[#0047AB] hover:bg-[#003580] text-white"
-                        disabled={isGeneratingSmashes || !match.videoUrl}
+                        disabled={
+                          isGeneratingSmashes ||
+                          !match.videoUrl ||
+                          (aiJobStatus !== null &&
+                            aiJobStatus !== "completed" &&
+                            aiJobStatus !== "failed")
+                        }
                         onClick={async () => {
                           try {
                             setIsGeneratingSmashes(true);
+                            setHasDismissedCompletedJob(false);
+                            setAiJobError(null);
 
                             const res = await fetch("/api/ai/ai-function", {
                               method: "POST",
@@ -803,14 +1043,27 @@ export default function MatchHighlightsPage() {
                             }
 
                             if (data.success) {
-                              console.log("AI result:", data.output);
-                              setSmashVideoUrl(
-                                `/api/ai/output-video?ts=${Date.now()}`
-                              );
-                              toast.push(
-                                "success",
-                                "Smash detection video generated"
-                              );
+                              if (typeof data.jobId === "string") {
+                                setAiJobId(data.jobId);
+                                setAiJobStatus(String(data.status ?? "queued"));
+                                setAiJobMessage(String(data.message ?? "Queued"));
+                                setAiJobProgress(
+                                  typeof data.progress === "number"
+                                    ? data.progress
+                                    : data.status === "completed"
+                                    ? 100
+                                    : 0
+                                );
+                                if (typeof window !== "undefined") {
+                                  localStorage.setItem(aiJobStorageKey, data.jobId);
+                                }
+                              }
+
+                              if (data.result_json?.success) {
+                                applyAiResult(data.result_json, data.jobId);
+                              } else {
+                                toast.push("success", "AI smash job started");
+                              }
                             } else {
                               console.error("Error:", data.error);
                               toast.push(
@@ -828,7 +1081,85 @@ export default function MatchHighlightsPage() {
                       >
                         {isGeneratingSmashes
                           ? "Generating..."
+                          : aiJobStatus &&
+                            aiJobStatus !== "completed" &&
+                            aiJobStatus !== "failed"
+                          ? "Processing..."
                           : "Generate smashes"}
+                      </Button>
+                    </div>
+
+                    {aiJobId && !hasDismissedCompletedJob && (
+                      <div className="mt-3 rounded-md border border-gray-200 bg-white p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium text-gray-700">
+                            {aiJobMessage}
+                          </p>
+                          <p className="text-xs text-gray-500">{aiJobProgress}%</p>
+                        </div>
+
+                        <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-300 ${
+                              aiJobStatus === "failed"
+                                ? "bg-red-500"
+                                : aiJobStatus === "completed"
+                                ? "bg-green-500"
+                                : "bg-[#0047AB]"
+                            }`}
+                            style={{ width: `${Math.max(0, Math.min(100, aiJobProgress))}%` }}
+                          />
+                        </div>
+
+                        {(aiJobProcessedFrames !== null ||
+                          aiJobTotalFrames !== null) && (
+                          <p className="text-[11px] text-gray-500">
+                            {aiJobProcessedFrames ?? 0}
+                            {aiJobTotalFrames !== null ? ` / ${aiJobTotalFrames}` : ""} frames
+                          </p>
+                        )}
+
+                        {aiJobError && (
+                          <p className="text-xs text-red-600">{aiJobError}</p>
+                        )}
+
+                        {(aiJobStatus === "completed" || aiJobStatus === "failed") && (
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-7 px-2 text-xs border-gray-300"
+                              onClick={dismissAiJobCard}
+                            >
+                              Dismiss
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <p className="text-xs text-gray-500">
+                        {aiSmashPoints.length > 0
+                          ? `${aiSmashPoints.length} AI smash timestamp${
+                              aiSmashPoints.length > 1 ? "s" : ""
+                            } ready to import`
+                          : "Generate smashes to prepare import points"}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 px-3 text-xs border-gray-300"
+                        onClick={() => void importAiSmashPoints()}
+                        disabled={
+                          aiSmashPoints.length === 0 ||
+                          isImportingAiSmashes ||
+                          isGeneratingSmashes
+                        }
+                      >
+                        {isImportingAiSmashes
+                          ? "Importing..."
+                          : "Import AI smashes"}
                       </Button>
                     </div>
                   </div>
