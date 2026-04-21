@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { HighlightReelPanel } from "@/components/highlight-reel-panel";
 import { ActionLegend } from "@/components/action-legend";
 import { VideoPlayer, type VideoPlayerHandle } from "@/components/video-player";
-import { actionTypeColors } from "@/lib/match-data";
+import { highlightActionColors } from "@/lib/match-data";
 import { getMatchTitle } from "@/lib/match-title";
 
 import {
@@ -104,7 +104,7 @@ function formatTime(s: number) {
 }
 
 function getActionColor(action: HighlightAction) {
-  return (actionTypeColors as Record<string, string>)[action] ?? "#6B7280";
+  return highlightActionColors[action] ?? "#6B7280";
 }
 
 export default function MatchHighlightsPage() {
@@ -159,8 +159,6 @@ export default function MatchHighlightsPage() {
   );
   const [isMarking, setIsMarking] = useState(false);
 
-  const [dirtyOffsetIds, setDirtyOffsetIds] = useState<Set<string>>(new Set());
-  // Track which point IDs have unsaved offset edits
   const [dirtyPointIds, setDirtyPointIds] = useState<Set<string>>(new Set());
   const [isSavingOffsets, setIsSavingOffsets] = useState(false);
   const hasUnsavedOffsets = dirtyPointIds.size > 0;
@@ -769,9 +767,18 @@ export default function MatchHighlightsPage() {
 
   const handleMarkerAdjust = (
     markerId: string,
-    updates: { clipBefore?: number; clipAfter?: number }
+    updates: { clipStart?: number; clipEnd?: number }
   ) => {
-    updatePointOffset(markerId, updates);
+    const point = points.find((p) => p.id === markerId);
+    if (!point) return;
+    const localUpdates: { clipBefore?: number; clipAfter?: number } = {};
+    if (updates.clipStart !== undefined) {
+      localUpdates.clipBefore = Math.round((point.timestamp - updates.clipStart) * 10) / 10;
+    }
+    if (updates.clipEnd !== undefined) {
+      localUpdates.clipAfter = Math.round((updates.clipEnd - point.timestamp) * 10) / 10;
+    }
+    updatePointOffset(markerId, localUpdates);
   };
 
   const handleDelete = async (id: string) => {
@@ -1191,17 +1198,24 @@ export default function MatchHighlightsPage() {
                   <div className="mt-4 flex flex-wrap gap-2">
                     {ACTIONS.map((action) => {
                       const active = action === selectedAction;
+                      const color = getActionColor(action);
                       return (
                         <button
                           key={action}
                           type="button"
                           onClick={() => setSelectedAction(action)}
-                          className={`px-3 py-2 rounded-md border text-sm font-medium transition-colors ${
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[#0047AB] ${
                             active
-                              ? "bg-[#0047AB] text-white border-[#0047AB]"
-                              : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                              ? "text-white border-transparent"
+                              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
                           }`}
+                          style={active ? { backgroundColor: color, borderColor: color } : undefined}
                         >
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: active ? "rgba(255,255,255,0.65)" : color }}
+                            aria-hidden="true"
+                          />
                           {action.toUpperCase()}
                         </button>
                       );
@@ -1226,9 +1240,7 @@ export default function MatchHighlightsPage() {
                       items={ACTIONS.map((a, i) => ({
                         keyLabel: `${i + 1}`,
                         label: a.toUpperCase(),
-                        color:
-                          (actionTypeColors as Record<string, string>)[a] ??
-                          "#9CA3AF",
+                        color: getActionColor(a),
                       }))}
                     />
                   </div>
@@ -1312,40 +1324,75 @@ export default function MatchHighlightsPage() {
                       No highlights yet.
                     </div>
                   ) : (
-                    <ul className="divide-y divide-gray-200">
+                    <ul className="divide-y divide-gray-100">
                       {sortedPoints.map((p) => {
                         const selected = p.id === selectedPointId;
                         const isPlaying = p.id === activeClipId;
+                        const actionColor = getActionColor(p.action);
 
                         const before = p.clipBefore ?? MARK_OFFSET_SECONDS;
                         const after = p.clipAfter ?? MARK_OFFSET_SECONDS;
                         const clipStart = Math.max(0, p.timestamp - before);
-                        const clipEnd = p.timestamp + after;
+                        const rawClipEnd = p.timestamp + after;
+                        const clipEnd =
+                          videoDuration > 0
+                            ? Math.min(videoDuration, rawClipEnd)
+                            : rawClipEnd;
                         const clipDuration = clipEnd - clipStart;
 
                         let progress = 0;
                         if (isPlaying && clipDuration > 0) {
                           progress = Math.min(
                             1,
-                            Math.max(
-                              0,
-                              (currentVideoTime - clipStart) / clipDuration
-                            )
+                            Math.max(0, (currentVideoTime - clipStart) / clipDuration)
                           );
                         }
 
                         return (
                           <li
                             key={p.id}
-                            className={`px-4 py-3 ${
-                              selected ? "bg-blue-50" : "hover:bg-gray-50"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleSeek(p)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleSeek(p);
+                              }
+                            }}
+                            style={{ borderLeftColor: actionColor }}
+                            className={`border-l-4 px-3 pt-2.5 pb-2 space-y-2 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0047AB] ${
+                              isPlaying || selected
+                                ? "bg-blue-50"
+                                : "bg-white hover:bg-gray-50"
                             }`}
                           >
-                            <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide text-white flex-shrink-0"
+                                style={{ backgroundColor: actionColor }}
+                              >
+                                {p.action.toUpperCase()}
+                              </span>
+
+                              <span className="text-xs font-mono text-gray-600 tabular-nums flex-shrink-0">
+                                {formatTime(p.timestamp)}
+                              </span>
+
+                              {dirtyPointIds.has(p.id) && (
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"
+                                  title="Unsaved changes"
+                                  aria-label="Unsaved changes"
+                                />
+                              )}
+
+                              <div className="flex-1" />
+
                               <button
                                 type="button"
-                                className="mt-0.5 flex-shrink-0"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setSelectedPointIds((prev) => {
                                     const next = new Set(prev);
                                     if (next.has(p.id)) next.delete(p.id);
@@ -1353,6 +1400,7 @@ export default function MatchHighlightsPage() {
                                     return next;
                                   });
                                 }}
+                                className="flex-shrink-0 p-1 rounded transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0047AB]"
                                 aria-label={
                                   selectedPointIds.has(p.id)
                                     ? "Exclude from reel"
@@ -1360,130 +1408,47 @@ export default function MatchHighlightsPage() {
                                 }
                               >
                                 {selectedPointIds.has(p.id) ? (
-                                  <CheckSquare className="w-5 h-5 text-[#0047AB]" />
+                                  <CheckSquare className="w-4 h-4 text-[#0047AB]" />
                                 ) : (
-                                  <Square className="w-5 h-5 text-gray-400" />
+                                  <Square className="w-4 h-4 text-gray-400" />
                                 )}
                               </button>
 
                               <button
                                 type="button"
-                                className="flex-1 text-left"
-                                onClick={() => handleSeek(p)}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="text-sm font-medium text-gray-900">
-                                    {p.action.toUpperCase()}
-                                  </span>
-                                  <span className="text-xs text-gray-600">
-                                    {formatTime(p.timestamp)}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  Click to seek
-                                </p>
-                              </button>
-
-                              <div className="ml-3 flex flex-col items-end gap-2">
-                                <div className="flex items-center gap-2 text-xs text-gray-600">
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      aria-label="decrease start"
-                                      onClick={() =>
-                                        updatePointOffset(p.id, {
-                                          clipBefore: Math.max(
-                                            0,
-                                            (p.clipBefore ??
-                                              MARK_OFFSET_SECONDS) - 1
-                                          ),
-                                        })
-                                      }
-                                      className="px-2 py-1 bg-gray-100 rounded border"
-                                    >
-                                      -
-                                    </button>
-                                    <span className="px-2">
-                                      Start: -
-                                      {p.clipBefore ?? MARK_OFFSET_SECONDS}s
-                                    </span>
-                                    <button
-                                      aria-label="increase start"
-                                      onClick={() =>
-                                        updatePointOffset(p.id, {
-                                          clipBefore:
-                                            (p.clipBefore ??
-                                              MARK_OFFSET_SECONDS) + 1,
-                                        })
-                                      }
-                                      className="px-2 py-1 bg-gray-100 rounded border"
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      aria-label="decrease end"
-                                      onClick={() =>
-                                        updatePointOffset(p.id, {
-                                          clipAfter: Math.max(
-                                            0,
-                                            (p.clipAfter ??
-                                              MARK_OFFSET_SECONDS) - 1
-                                          ),
-                                        })
-                                      }
-                                      className="px-2 py-1 bg-gray-100 rounded border"
-                                    >
-                                      -
-                                    </button>
-                                    <span className="px-2">
-                                      End: +{p.clipAfter ?? MARK_OFFSET_SECONDS}
-                                      s
-                                    </span>
-                                    <button
-                                      aria-label="increase end"
-                                      onClick={() =>
-                                        updatePointOffset(p.id, {
-                                          clipAfter:
-                                            (p.clipAfter ??
-                                              MARK_OFFSET_SECONDS) + 1,
-                                        })
-                                      }
-                                      className="px-2 py-1 bg-gray-100 rounded border"
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <Button
-                                variant="outline"
-                                className="border-gray-300"
-                                onClick={() => handleDelete(p.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleDelete(p.id);
+                                }}
+                                className="flex-shrink-0 p-1 rounded text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
                                 aria-label="Delete highlight"
                               >
                                 <Trash2 className="w-4 h-4" />
-                              </Button>
+                              </button>
                             </div>
 
-                            <div className="mt-3">
-                              <Input
-                                value={p.note ?? ""}
-                                onChange={(e) =>
-                                  updatePointOffset(p.id, {
-                                    note: e.target.value,
-                                  })
-                                }
-                                placeholder="Add note (optional)"
-                                className="h-8 text-xs"
-                              />
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-mono tabular-nums text-gray-700">
+                                Clip: {formatTime(clipStart)} - {formatTime(clipEnd)}
+                              </span>
+                              <span className="text-[10px] text-gray-400">
+                                Adjust by dragging timeline clip handles
+                              </span>
                             </div>
 
-                            {/* Clip progress bar */}
-                            <div className="mt-2 w-full">
-                              <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                            <Input
+                              value={p.note ?? ""}
+                              onChange={(e) =>
+                                updatePointOffset(p.id, { note: e.target.value })
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              onFocus={(e) => e.stopPropagation()}
+                              placeholder="Note (optional)"
+                              className="h-7 text-xs"
+                            />
+
+                            <div>
+                              <div className="h-1 w-full bg-gray-200 rounded-full overflow-hidden">
                                 <div
                                   className={`h-full rounded-full transition-all duration-150 ${
                                     isPlaying
@@ -1503,7 +1468,6 @@ export default function MatchHighlightsPage() {
                                   }}
                                 />
                               </div>
-
                               {(isPlaying || selected) && (
                                 <div className="flex justify-between mt-1 text-[10px] text-gray-400">
                                   <span>{formatTime(clipStart)}</span>

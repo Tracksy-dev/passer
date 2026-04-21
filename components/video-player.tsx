@@ -39,8 +39,8 @@ export type VideoTimelineMarker = {
 };
 
 export type VideoTimelineMarkerAdjust = {
-  clipBefore?: number;
-  clipAfter?: number;
+  clipStart?: number;
+  clipEnd?: number;
 };
 
 interface VideoPlayerProps {
@@ -101,8 +101,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const timelineTrackRef = useRef<HTMLDivElement | null>(null);
     const dragStateRef = useRef<{
       markerId: string;
-      edge: "start" | "end";
+      edge: "start" | "end" | "body";
+      grabOffset?: number;
+      startX?: number;
+      hasMoved?: boolean;
     } | null>(null);
+    const suppressNextClickRef = useRef(false);
 
     const [duration, setDuration] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -169,33 +173,39 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         const rect = track.getBoundingClientRect();
         if (rect.width <= 0) return;
 
+        if (drag.startX !== undefined && Math.abs(e.clientX - drag.startX) > 4) {
+          drag.hasMoved = true;
+        }
+
         const pct = clampPercent(((e.clientX - rect.left) / rect.width) * 100);
         const time = (pct / 100) * duration;
 
         if (drag.edge === "start") {
-          const maxStart = Math.min(
-            marker.timestamp,
-            marker.clipEnd - MIN_CLIP_SECONDS,
+          const nextStart = roundToTenth(
+            Math.max(0, Math.min(time, marker.clipEnd - MIN_CLIP_SECONDS)),
           );
-          const nextStart = Math.max(0, Math.min(time, maxStart));
-          const clipBefore = roundToTenth(
-            Math.max(0, marker.timestamp - nextStart),
+          onMarkerAdjust?.(marker.id, { clipStart: nextStart });
+        } else if (drag.edge === "end") {
+          const nextEnd = roundToTenth(
+            Math.min(duration, Math.max(time, marker.clipStart + MIN_CLIP_SECONDS)),
           );
-          onMarkerAdjust?.(marker.id, { clipBefore });
+          onMarkerAdjust?.(marker.id, { clipEnd: nextEnd });
         } else {
-          const minEnd = Math.max(
-            marker.timestamp,
-            marker.clipStart + MIN_CLIP_SECONDS,
+          const clipLen = marker.clipEnd - marker.clipStart;
+          const nextStart = roundToTenth(
+            Math.max(0, Math.min(time - (drag.grabOffset ?? 0), duration - clipLen)),
           );
-          const nextEnd = Math.min(duration, Math.max(time, minEnd));
-          const clipAfter = roundToTenth(Math.max(0, nextEnd - marker.timestamp));
-          onMarkerAdjust?.(marker.id, { clipAfter });
+          const nextEnd = roundToTenth(nextStart + clipLen);
+          onMarkerAdjust?.(marker.id, { clipStart: nextStart, clipEnd: nextEnd });
         }
 
         e.preventDefault();
       };
 
       const stopDrag = () => {
+        if (dragStateRef.current?.hasMoved) {
+          suppressNextClickRef.current = true;
+        }
         dragStateRef.current = null;
       };
 
@@ -219,6 +229,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       e.preventDefault();
       e.stopPropagation();
       dragStateRef.current = { markerId, edge };
+    };
+
+    const beginBodyDrag = (
+      e: React.PointerEvent<HTMLButtonElement>,
+      markerId: string,
+    ) => {
+      if (duration <= 0) return;
+      const marker = markers.find((m) => m.id === markerId);
+      if (!marker || !timelineTrackRef.current) return;
+      e.preventDefault();
+      const rect = timelineTrackRef.current.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const pct = clampPercent(((e.clientX - rect.left) / rect.width) * 100);
+      const time = (pct / 100) * duration;
+      dragStateRef.current = {
+        markerId,
+        edge: "body",
+        grabOffset: time - marker.clipStart,
+        startX: e.clientX,
+        hasMoved: false,
+      };
     };
 
     const togglePlay = async () => {
@@ -479,24 +510,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   </div>
 
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] font-medium text-white/90">
+                    <span className="text-[11px] font-medium text-white/70">
                       Clip Timeline
                     </span>
-                    <span className="text-[10px] text-white/70">
+                    <span className="text-[10px] text-white/50">
                       {normalizedMarkers.length} clip
                       {normalizedMarkers.length === 1 ? "" : "s"}
                     </span>
                   </div>
 
-                  <div ref={timelineTrackRef} className="relative h-8">
-                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-white/20" />
+                  <div ref={timelineTrackRef} className="relative h-10">
+                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-3 rounded-full bg-white/10 ring-1 ring-inset ring-white/10 backdrop-blur-sm" />
 
                     {normalizedMarkers.map((marker) => {
                       const isActive = marker.id === activeMarkerId;
                       const baseWidth = marker.endPercent - marker.startPercent;
                       const widthPercent = Math.max(baseWidth, 0.8);
+                      const anchorVisible =
+                        marker.pointPercent >= marker.startPercent &&
+                        marker.pointPercent <= marker.endPercent;
                       const pointWithin =
-                        widthPercent > 0
+                        widthPercent > 0 && anchorVisible
                           ? clampPercent(
                               ((marker.pointPercent - marker.startPercent) /
                                 widthPercent) *
@@ -507,7 +541,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                       return (
                         <div
                           key={marker.id}
-                          className="absolute top-1/2 -translate-y-1/2 h-5"
+                          className="absolute top-1/2 -translate-y-1/2 h-8"
                           style={{
                             left: `${marker.startPercent}%`,
                             width: `${widthPercent}%`,
@@ -515,73 +549,72 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                         >
                           <button
                             type="button"
-                            onClick={() => onMarkerClick?.(marker.id)}
+                            onPointerDown={(e) => beginBodyDrag(e, marker.id)}
+                            onClick={() => {
+                              if (suppressNextClickRef.current) {
+                                suppressNextClickRef.current = false;
+                                return;
+                              }
+                              onMarkerClick?.(marker.id);
+                            }}
                             aria-label={`Jump to ${marker.label} clip from ${formatTimelineTime(marker.clipStart)} to ${formatTimelineTime(marker.clipEnd)}`}
-                            className="group absolute inset-0 focus:outline-none"
+                            className={`group/clip absolute inset-0 rounded-full border border-white/40 shadow-[0_6px_18px_-8px_rgba(0,37,92,0.6)] cursor-grab active:cursor-grabbing focus:outline-none transition-shadow ${
+                              isActive
+                                ? "ring-2 ring-[#1B7CFF] ring-offset-1 ring-offset-transparent"
+                                : ""
+                            }`}
+                            style={{
+                              background: `linear-gradient(120deg, ${marker.color}cc, ${marker.color})`,
+                            }}
                           >
-                            <span
-                              className={`absolute inset-y-0 left-0 right-0 rounded-sm border transition-all ${
-                                isActive
-                                  ? "ring-1 ring-offset-1 ring-blue-500"
-                                  : ""
-                              }`}
-                              style={{
-                                backgroundColor: marker.color,
-                                opacity: isActive ? 0.5 : 0.3,
-                                borderColor: marker.color,
-                              }}
-                            />
+                            {anchorVisible && (
+                              <span
+                                className="group/dot absolute top-1/2 h-2 w-2 rounded-full bg-white border-2 border-[#1B7CFF] shadow z-10"
+                                style={{
+                                  left: `${pointWithin}%`,
+                                  transform: "translate(-50%, -50%)",
+                                }}
+                              >
+                                <span className="pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 hidden whitespace-nowrap rounded bg-gray-900 px-1.5 py-0.5 text-[9px] text-white shadow group-hover/dot:block">
+                                  Match point
+                                </span>
+                              </span>
+                            )}
 
-                            {/* clip start tick */}
-                            <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-gray-800" />
-                            {/* clip end tick */}
-                            <span className="absolute right-0 top-0 bottom-0 w-0.5 bg-gray-800" />
-
-                            {/* point marker inside clip */}
-                            <span
-                              className="absolute top-1/2 h-2.5 w-2.5 rounded-full border-2 border-white shadow"
-                              style={{
-                                left: `${pointWithin}%`,
-                                transform: "translate(-50%, -50%)",
-                                backgroundColor: marker.color,
-                              }}
-                            />
-
-                            {/* tooltip */}
-                            <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 hidden whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] text-white shadow group-hover:block group-focus-visible:block">
+                            <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 hidden whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[10px] text-white shadow group-hover/clip:block group-focus-visible/clip:block">
                               {marker.label} {formatTimelineTime(marker.clipStart)}
                               {" - "}
                               {formatTimelineTime(marker.clipEnd)}
                             </span>
                           </button>
 
-                          {/* start drag handle */}
                           <button
                             type="button"
                             onPointerDown={(e) =>
                               beginEdgeDrag(e, marker.id, "start")
                             }
                             aria-label={`Adjust start of ${marker.label} clip`}
-                            className="absolute -left-1.5 top-1/2 -translate-y-1/2 h-4 w-2 rounded-sm border border-white/80 bg-black/70 shadow cursor-ew-resize"
+                            className="absolute -left-1 top-1/2 -translate-y-1/2 h-6 w-1.5 rounded-full bg-white/90 shadow ring-1 ring-black/10 cursor-ew-resize hover:shadow-[0_0_6px_rgba(27,124,255,0.6)] z-20"
                           />
 
-                          {/* end drag handle */}
                           <button
                             type="button"
                             onPointerDown={(e) => beginEdgeDrag(e, marker.id, "end")}
                             aria-label={`Adjust end of ${marker.label} clip`}
-                            className="absolute -right-1.5 top-1/2 -translate-y-1/2 h-4 w-2 rounded-sm border border-white/80 bg-black/70 shadow cursor-ew-resize"
+                            className="absolute -right-1 top-1/2 -translate-y-1/2 h-6 w-1.5 rounded-full bg-white/90 shadow ring-1 ring-black/10 cursor-ew-resize hover:shadow-[0_0_6px_rgba(27,124,255,0.6)] z-20"
                           />
                         </div>
                       );
                     })}
 
-                    {/* live playhead */}
                     <div
-                      className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-red-500"
+                      className="pointer-events-none absolute top-0 bottom-0 z-30 flex flex-col items-center"
                       style={{ left: `${playheadPercent}%` }}
                       aria-hidden="true"
-                    />
+                    >
+                      <div className="w-1.5 h-1.5 -mt-0.5 rounded-full bg-[#1B7CFF] shadow-[0_0_4px_rgba(27,124,255,0.8)]" />
+                      <div className="w-0.5 flex-1 bg-[#1B7CFF] shadow-[0_0_8px_rgba(27,124,255,0.8)]" />
+                    </div>
                   </div>
                 </div>
               </div>
