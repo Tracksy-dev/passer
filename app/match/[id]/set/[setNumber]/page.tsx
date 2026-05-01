@@ -139,6 +139,7 @@ export default function MatchHighlightsPage() {
   const [aiJobError, setAiJobError] = useState<string | null>(null);
   const [hasDismissedCompletedJob, setHasDismissedCompletedJob] =
     useState(false);
+  const [isCancellingJob, setIsCancellingJob] = useState(false);
   const [isEditingMatchTitle, setIsEditingMatchTitle] = useState(false);
   const [matchNameDraft, setMatchNameDraft] = useState("");
   const [isSavingMatchTitle, setIsSavingMatchTitle] = useState(false);
@@ -162,6 +163,7 @@ export default function MatchHighlightsPage() {
   const [dirtyPointIds, setDirtyPointIds] = useState<Set<string>>(new Set());
   const [isSavingOffsets, setIsSavingOffsets] = useState(false);
   const hasUnsavedOffsets = dirtyPointIds.size > 0;
+  const [generateWithoutSavingNonce, setGenerateWithoutSavingNonce] = useState(0);
 
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
@@ -485,8 +487,8 @@ export default function MatchHighlightsPage() {
     setDirtyPointIds((prev) => new Set(prev).add(id));
   };
 
-  const applyOffsets = async () => {
-    if (dirtyPointIds.size === 0) return;
+  const applyOffsets = async (): Promise<boolean> => {
+    if (dirtyPointIds.size === 0) return true;
     setIsSavingOffsets(true);
 
     try {
@@ -509,13 +511,16 @@ export default function MatchHighlightsPage() {
       const failed = results.filter((r) => r.error);
       if (failed.length > 0) {
         toast.push("error", `Failed to save ${failed.length} offset(s)`);
+        return false;
       } else {
         toast.push("success", `Saved changes for ${dirty.length} point(s)`);
         setDirtyPointIds(new Set());
+        return true;
       }
     } catch (e) {
       console.error(e);
       toast.push("error", "Failed to save offsets");
+      return false;
     } finally {
       setIsSavingOffsets(false);
     }
@@ -603,7 +608,7 @@ export default function MatchHighlightsPage() {
   useEffect(() => {
     if (!aiJobId || hasDismissedCompletedJob) return;
 
-    let cancelled = false;
+    let stopped = false;
 
     const pollJob = async () => {
       try {
@@ -614,43 +619,67 @@ export default function MatchHighlightsPage() {
           job?: AiJobRow;
         };
 
-        if (cancelled) return;
-        if (!data.success || !data.job) return;
+        if (stopped) return;
 
-        const job = data.job;
-        setAiJobStatus(job.status);
-        setAiJobProgress(job.progress ?? 0);
-        setAiJobMessage(job.message ?? "Working...");
-        setAiJobProcessedFrames(job.processed_frames ?? null);
-        setAiJobTotalFrames(job.total_frames ?? null);
-        setAiJobError(job.error_text ?? null);
+        if (data.success && data.job) {
+          const job = data.job;
+          setAiJobStatus(job.status);
+          setAiJobProgress(job.progress ?? 0);
+          setAiJobMessage(job.message ?? "Working...");
+          setAiJobProcessedFrames(job.processed_frames ?? null);
+          setAiJobTotalFrames(job.total_frames ?? null);
+          setAiJobError(job.error_text ?? null);
 
-        if (job.result_json?.success) {
-          applyAiResult(job.result_json, job.id);
+          if (job.result_json?.success) {
+            applyAiResult(job.result_json, job.id);
+          }
+
+          // Terminal states — stop polling.
+          if (
+            job.status === "completed" ||
+            job.status === "failed" ||
+            job.status === "cancelled"
+          ) {
+            return;
+          }
         }
-
-        if (job.status === "completed" || job.status === "failed") {
-          return;
-        }
+        // Non-terminal or transient error — fall through to reschedule.
       } catch {
-        if (!cancelled) {
-          setAiJobMessage("Unable to fetch AI job status");
+        if (!stopped) {
+          setAiJobMessage("Unable to fetch job status — retrying…");
         }
       }
 
-      if (!cancelled) {
-        window.setTimeout(() => {
-          void pollJob();
-        }, 1500);
+      // Always reschedule unless the effect was cleaned up or a terminal
+      // status was hit above (which returns early before reaching this line).
+      if (!stopped) {
+        window.setTimeout(() => void pollJob(), 1500);
       }
     };
 
     void pollJob();
 
     return () => {
-      cancelled = true;
+      stopped = true;
     };
   }, [aiJobId, hasDismissedCompletedJob]);
+
+  const handleCancelJob = async () => {
+    if (!aiJobId || isCancellingJob) return;
+    try {
+      setIsCancellingJob(true);
+      const res = await fetch(`/api/ai/jobs/${aiJobId}`, { method: "DELETE" });
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (!data.success) throw new Error(data.error ?? "Cancel failed");
+      setAiJobStatus("cancelled");
+      setAiJobMessage("Cancelled by user");
+      setAiJobProgress(100);
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : "Failed to cancel job");
+    } finally {
+      setIsCancellingJob(false);
+    }
+  };
 
   const importAiSmashPoints = async () => {
     if (aiSmashPoints.length === 0 || isImportingAiSmashes) return;
@@ -871,11 +900,23 @@ export default function MatchHighlightsPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col relative overflow-hidden bg-slate-50">
       <SiteHeader showNav={true} activePage="dashboard" />
 
-      <main className="flex-1 bg-gray-50 px-4 md:px-6 lg:px-8 py-6 md:py-8">
-        <div className="max-w-[88rem] mx-auto space-y-6">
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none fixed inset-0 z-0 transition-opacity duration-1000 ease-out ${
+          hasUnsavedOffsets ? "opacity-100" : "opacity-0"
+        }`}
+        style={{
+          background:
+            "radial-gradient(1200px 700px at 50% 12%, rgba(245,158,11,0.18) 0%, rgba(245,158,11,0.10) 24%, rgba(245,158,11,0.04) 46%, rgba(245,158,11,0.00) 68%), linear-gradient(180deg, rgba(255,251,235,0.40) 0%, rgba(255,251,235,0.14) 42%, rgba(255,255,255,0) 78%)",
+          mixBlendMode: "multiply",
+        }}
+      />
+
+      <main className="relative z-10 flex-1 bg-transparent px-4 md:px-6 lg:px-8 py-6 md:py-8 transition-colors duration-1000 ease-out">
+        <div className="relative z-10 max-w-[88rem] mx-auto space-y-6">
           {/* Header */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 md:gap-4 flex-wrap">
@@ -992,6 +1033,13 @@ export default function MatchHighlightsPage() {
                 <HighlightReelPanel
                   matchId={matchId}
                   selectedPointIds={selectedPointIds}
+                  hasUnsavedOffsets={hasUnsavedOffsets}
+                  unsavedPointCount={dirtyPointIds.size}
+                  generateWithoutSavingNonce={generateWithoutSavingNonce}
+                  onGenerateWithoutSaving={() => {
+                    setGenerateWithoutSavingNonce((n) => n + 1);
+                  }}
+                  onSaveOffsets={applyOffsets}
                 />
               </div>
 
@@ -1110,6 +1158,8 @@ export default function MatchHighlightsPage() {
                             className={`h-full transition-all duration-300 ${
                               aiJobStatus === "failed"
                                 ? "bg-red-500"
+                                : aiJobStatus === "cancelled"
+                                ? "bg-gray-400"
                                 : aiJobStatus === "completed"
                                 ? "bg-green-500"
                                 : "bg-[#0047AB]"
@@ -1130,8 +1180,23 @@ export default function MatchHighlightsPage() {
                           <p className="text-xs text-red-600">{aiJobError}</p>
                         )}
 
-                        {(aiJobStatus === "completed" || aiJobStatus === "failed") && (
-                          <div className="flex justify-end">
+                        <div className="flex justify-end gap-2">
+                          {aiJobStatus !== "completed" &&
+                            aiJobStatus !== "failed" &&
+                            aiJobStatus !== "cancelled" && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-7 px-2 text-xs border-red-200 text-red-600 hover:bg-red-50"
+                                onClick={() => void handleCancelJob()}
+                                disabled={isCancellingJob}
+                              >
+                                {isCancellingJob ? "Cancelling…" : "Cancel"}
+                              </Button>
+                            )}
+                          {(aiJobStatus === "completed" ||
+                            aiJobStatus === "failed" ||
+                            aiJobStatus === "cancelled") && (
                             <Button
                               type="button"
                               variant="outline"
@@ -1140,8 +1205,8 @@ export default function MatchHighlightsPage() {
                             >
                               Dismiss
                             </Button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -1247,17 +1312,17 @@ export default function MatchHighlightsPage() {
                 </div>
 
                 {hasUnsavedOffsets && (
-                  <div className="px-4 py-3 border-b border-amber-200 bg-amber-50 flex items-center justify-between gap-3">
-                    <span className="text-xs font-medium text-amber-800">
+                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
+                    <span className="text-xs font-medium text-gray-700">
                       {dirtyPointIds.size} unsaved point change
                       {dirtyPointIds.size > 1 ? "s" : ""}
                     </span>
                     <Button
                       onClick={() => void applyOffsets()}
                       disabled={isSavingOffsets}
-                      className="h-7 px-3 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                      className="h-7 px-3 text-xs bg-[#0047AB] hover:bg-[#003580] text-white"
                     >
-                      {isSavingOffsets ? "Saving…" : "Apply Changes"}
+                      {isSavingOffsets ? "Saving…" : "Save Changes"}
                     </Button>
                   </div>
                 )}
