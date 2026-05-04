@@ -800,6 +800,7 @@ function ReelFeed({
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(startIndex);
   const [muted, setMuted] = useState(true);
+  const [volume, setVolume] = useState(1);
   const videoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
   const isScrollingRef = useRef(false);
 
@@ -839,18 +840,35 @@ function ReelFeed({
     return () => observer.disconnect();
   }, [reels.length]);
 
-  // Play/pause videos based on active index
+  // Play/pause videos based on active index - reset to start when video changes
   useEffect(() => {
     videoRefs.current.forEach((video, idx) => {
       if (idx === activeIndex) {
         video.currentTime = 0;
         video.muted = muted;
+        video.volume = volume;
         video.play().catch(() => {});
       } else {
         video.pause();
       }
     });
-  }, [activeIndex, muted]);
+  }, [activeIndex]);
+
+  // Update muted state without resetting video position
+  useEffect(() => {
+    const activeVideo = videoRefs.current.get(activeIndex);
+    if (activeVideo) {
+      activeVideo.muted = muted;
+    }
+  }, [muted, activeIndex]);
+
+  // Update volume without resetting video position
+  useEffect(() => {
+    const activeVideo = videoRefs.current.get(activeIndex);
+    if (activeVideo) {
+      activeVideo.volume = volume;
+    }
+  }, [volume, activeIndex]);
 
   // Load more when near the end
   useEffect(() => {
@@ -909,17 +927,39 @@ function ReelFeed({
         <span className="text-white/70 text-sm font-medium">
           {activeIndex + 1} / {reels.length}
         </span>
-        <button
-          onClick={() => setMuted((m) => !m)}
-          className="w-10 h-10 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center transition-colors"
-          aria-label={muted ? "Unmute" : "Mute"}
-        >
-          {muted ? (
-            <VolumeX className="w-5 h-5 text-white" />
-          ) : (
-            <Volume2 className="w-5 h-5 text-white" />
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-black/40 rounded-full px-3 py-2">
+            <button
+              onClick={() => setMuted((m) => !m)}
+              className="w-8 h-8 rounded-full hover:bg-black/40 flex items-center justify-center transition-colors flex-shrink-0"
+              aria-label={muted ? "Unmute" : "Mute"}
+            >
+              {muted ? (
+                <VolumeX className="w-4 h-4 text-white" />
+              ) : (
+                <Volume2 className="w-4 h-4 text-white" />
+              )}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={muted ? 0 : volume * 100}
+              onChange={(e) => {
+                const newVol = parseInt(e.target.value) / 100;
+                setVolume(newVol);
+                if (newVol > 0) {
+                  setMuted(false);
+                }
+              }}
+              className="w-20 h-1.5 rounded-full appearance-none bg-white/20 cursor-pointer"
+              style={{
+                background: `linear-gradient(to right, rgb(59, 130, 246) 0%, rgb(59, 130, 246) ${muted ? 0 : volume * 100}%, rgba(255, 255, 255, 0.2) ${muted ? 0 : volume * 100}%, rgba(255, 255, 255, 0.2) 100%)`,
+              }}
+              title="Volume"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Nav arrows — desktop only */}
@@ -992,9 +1032,7 @@ function ReelFeed({
                 </div>
                 <div className="min-w-0">
                   <p className="text-white text-sm font-semibold truncate">
-                    {r.creator?.display_name ||
-                      r.creator?.username ||
-                      "Unknown"}
+                    {r.creator?.display_name || r.creator?.username || "Unknown"}
                   </p>
                   {r.creator?.username && (
                     <p className="text-white/60 text-xs truncate">

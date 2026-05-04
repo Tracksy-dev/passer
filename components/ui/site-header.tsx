@@ -3,7 +3,7 @@
 import { PasserLogo } from "./passer-logo";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Bell, Compass, LogOut, ShieldCheck } from "lucide-react";
+import { Bell, Globe, LogOut, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
@@ -141,14 +141,14 @@ export function SiteHeader({ showNav = false, activePage }: SiteHeaderProps) {
                     : "text-[#0A3D7D] hover:bg-[#1B7CFF]/12"
                 }`}
               >
-                <motion.span
-                  whileHover={prefersReducedMotion ? undefined : { y: -1 }}
-                  transition={{ type: "spring", stiffness: 320, damping: 24 }}
-                  className="flex items-center gap-1.5"
-                >
-                  <Compass className="w-4 h-4" />
-                  Explore
-                </motion.span>
+                  <motion.span
+                    whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+                    transition={{ type: "spring", stiffness: 320, damping: 24 }}
+                    className="flex items-center gap-1.5"
+                  >
+                    <Globe className="w-4 h-4" />
+                    Explore
+                  </motion.span>
               </Link>
               <Link
                 href="/upload-page"
