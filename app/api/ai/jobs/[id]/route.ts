@@ -1,7 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { killProcess } from "../../_process-registry";
 
 async function getSupabase() {
   const cookieStore = await cookies();
@@ -113,9 +112,15 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: updateErr.message }, { status: 500 });
   }
 
-  // Best-effort SIGTERM — only works when running on the same Node process
-  // that spawned the detector (local dev / self-hosted). No-op on serverless.
-  killProcess(id);
+  // Best-effort signal to the Render service to stop the subprocess.
+  const renderUrl    = process.env.RENDER_SERVICE_URL;
+  const renderSecret = process.env.RENDER_API_SECRET;
+  if (renderUrl) {
+    fetch(`${renderUrl}/jobs/${id}`, {
+      method: "DELETE",
+      headers: renderSecret ? { Authorization: `Bearer ${renderSecret}` } : {},
+    }).catch(() => {/* ignore — Supabase status already updated */});
+  }
 
   return NextResponse.json({ success: true });
 }
