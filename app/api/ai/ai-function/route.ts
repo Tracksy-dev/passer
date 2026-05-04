@@ -1,45 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { spawn } from "child_process";
-import path from "path";
-import { createHash } from "crypto";
-import { promises as fs } from "fs";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-type RequestBody = {
-  videoUrl?: string | null;
-  matchId?: string;
-};
+type MergedEntry = { raw: string; sec: number; conf: number };
 
-type SmashPoint = {
-  timestamp_seconds: number;
-  label: "smash";
-  note: string;
-};
-
-type SmashPayload = {
-  success: true;
-  matchId?: string;
-  cached: boolean;
-  smashRaw: string[];
-  smashSeconds: number[];
-  smashProjectPoints: SmashPoint[];
-};
-
-type ProgressEvent = {
-  type?: string;
-  status?: string;
-  message?: string;
-  progress?: number;
-  processed_frames?: number;
-  total_frames?: number;
-};
-
-const AI_DEV_DIR = path.join(process.cwd(), "app", "Ai-Dev");
-const SCRIPT_PATH = path.join(AI_DEV_DIR, "ModelV6.py");
-const CACHE_DIR = path.join(AI_DEV_DIR, "runs", "cache");
-const JOB_OUTPUT_DIR = path.join(AI_DEV_DIR, "runs", "jobs");
 const ACTIVE_STATUSES = ["queued", "downloading", "loading_model", "processing", "finalizing"];
+
+const DETECTOR_VERSION = process.env.SMASH_DETECTOR_VERSION ?? "v6_improved";
+
+const RENDER_SERVICE_URL = process.env.RENDER_SERVICE_URL ?? "";
+const RENDER_API_SECRET  = process.env.RENDER_API_SECRET  ?? "";
 
 async function getSupabase() {
   const cookieStore = await cookies();
@@ -61,78 +31,48 @@ async function getSupabase() {
   );
 }
 
-function buildCacheKey(videoUrl: string, matchId?: string) {
-  return createHash("sha1")
-    .update(`${videoUrl}::${matchId ?? ""}`)
-    .digest("hex");
-}
-
-function parseSmashTime(raw: string): number | null {
-  const parts = raw.trim().split(".");
-  if (parts.length !== 3) return null;
-
-  const minutes = Number(parts[0]);
-  const seconds = Number(parts[1]);
-  const centiseconds = Number(parts[2]);
-
-  if (
-    !Number.isFinite(minutes) ||
-    !Number.isFinite(seconds) ||
-    !Number.isFinite(centiseconds)
-  ) {
-    return null;
+/**
+ * Temporal dedup used by smash-dedup.test.ts and as a reference implementation.
+ * The actual dedup now runs inside the Render Python service (runner.py).
+ *
+ * Scans left-to-right over a pre-sorted ascending list. Any event within
+ * windowSec of the current cluster's representative is merged; the
+ * highest-confidence event wins and becomes the new anchor.
+ *
+ * Boundary: gap <= windowSec → merged; gap > windowSec → separate.
+ */
+export function mergeByMinGap(events: MergedEntry[], windowSec: number): MergedEntry[] {
+  const merged: MergedEntry[] = [];
+  for (const e of events) {
+    const last = merged[merged.length - 1];
+    if (last !== undefined && e.sec - last.sec <= windowSec) {
+      if (e.conf > last.conf) {
+        merged[merged.length - 1] = e;
+      }
+    } else {
+      merged.push(e);
+    }
   }
-
-  const total = minutes * 60 + seconds + centiseconds / 100;
-  return Number(total.toFixed(2));
-}
-
-function buildSmashPayload(rawSmash: string[], matchId?: string): SmashPayload {
-  const dedup = new Map<number, string>();
-
-  for (const raw of rawSmash) {
-    const sec = parseSmashTime(raw);
-    if (sec === null) continue;
-    if (!dedup.has(sec)) dedup.set(sec, raw);
-  }
-
-  const entries = [...dedup.entries()].sort((a, b) => a[0] - b[0]);
-  const smashSeconds = entries.map(([sec]) => sec);
-  const smashRaw = entries.map(([, raw]) => raw);
-  const smashProjectPoints: SmashPoint[] = smashSeconds.map((timestamp_seconds) => ({
-    timestamp_seconds,
-    label: "smash",
-    note: "AI detected smash",
-  }));
-
-  return {
-    success: true,
-    matchId,
-    cached: false,
-    smashRaw,
-    smashSeconds,
-    smashProjectPoints,
-  };
-}
-
-async function readSmashListFromOutput(filePath: string) {
-  const raw = await fs.readFile(filePath, "utf-8");
-  const parsed = JSON.parse(raw) as { smash?: unknown };
-  return Array.isArray(parsed.smash)
-    ? parsed.smash.filter((v): v is string => typeof v === "string")
-    : [];
+  return merged;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as RequestBody;
+    const body = (await req.json()) as { videoUrl?: string | null; matchId?: string };
     const videoUrl = body.videoUrl ?? null;
-    const matchId = body.matchId;
+    const matchId  = body.matchId;
 
     if (!videoUrl || !matchId) {
       return NextResponse.json(
         { success: false, error: "Missing videoUrl or matchId" },
         { status: 400 }
+      );
+    }
+
+    if (!RENDER_SERVICE_URL) {
+      return NextResponse.json(
+        { success: false, error: "RENDER_SERVICE_URL is not configured" },
+        { status: 500 }
       );
     }
 
@@ -146,6 +86,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
+    // Reuse an in-flight job for the same match.
     const { data: activeJob } = await supabase
       .from("ai_jobs")
       .select("id, status, message, progress")
@@ -167,21 +108,39 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    await fs.mkdir(CACHE_DIR, { recursive: true });
-    await fs.mkdir(JOB_OUTPUT_DIR, { recursive: true });
+    // Return a previously completed job for this exact video (acts as cache).
+    const { data: cachedJob } = await supabase
+      .from("ai_jobs")
+      .select("id, result_json")
+      .eq("user_id", user.id)
+      .eq("match_id", matchId)
+      .eq("video_url", videoUrl)
+      .eq("status", "completed")
+      .not("result_json", "is", null)
+      .order("finished_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    const cacheKey = buildCacheKey(videoUrl, matchId);
-    const cachePath = path.join(CACHE_DIR, `${cacheKey}.json`);
+    if (cachedJob?.result_json) {
+      return NextResponse.json({
+        success: true,
+        jobId: cachedJob.id,
+        status: "completed",
+        result_json: { ...(cachedJob.result_json as object), cached: true },
+        cached: true,
+      });
+    }
 
+    // Create a new job record.
     const { data: createdJob, error: createErr } = await supabase
       .from("ai_jobs")
       .insert({
-        user_id: user.id,
-        match_id: matchId,
-        video_url: videoUrl,
-        status: "queued",
-        progress: 0,
-        message: "Queued",
+        user_id:    user.id,
+        match_id:   matchId,
+        video_url:  videoUrl,
+        status:     "queued",
+        progress:   0,
+        message:    "Queued",
       })
       .select("id")
       .single();
@@ -195,145 +154,42 @@ export async function POST(req: NextRequest) {
 
     const jobId = createdJob.id as string;
 
-    try {
-      const cachedRaw = await fs.readFile(cachePath, "utf-8");
-      const cached = JSON.parse(cachedRaw) as SmashPayload;
+    // Dispatch to Render — fire-and-forget from Next.js perspective.
+    // The Render service updates Supabase directly as it progresses.
+    const renderResp = await fetch(`${RENDER_SERVICE_URL}/detect`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(RENDER_API_SECRET ? { Authorization: `Bearer ${RENDER_API_SECRET}` } : {}),
+      },
+      body: JSON.stringify({
+        video_url:        videoUrl,
+        job_id:           jobId,
+        match_id:         matchId,
+        detector_version: DETECTOR_VERSION,
+      }),
+    });
 
+    if (!renderResp.ok) {
       await supabase
         .from("ai_jobs")
         .update({
-          status: "completed",
-          progress: 100,
-          message: "Completed",
-          result_json: { ...cached, cached: true },
+          status:      "failed",
+          progress:    100,
+          message:     "Failed",
+          error_text:  `Could not reach detection service (HTTP ${renderResp.status})`,
           finished_at: new Date().toISOString(),
         })
         .eq("id", jobId)
         .eq("user_id", user.id);
 
-      return NextResponse.json({
-        success: true,
-        jobId,
-        status: "completed",
-        result_json: { ...cached, cached: true },
-        cached: true,
-      });
-    } catch {
-      // Cache miss, run model.
+      return NextResponse.json(
+        { success: false, error: "Detection service unavailable" },
+        { status: 502 }
+      );
     }
 
-    const jobOutputJsonPath = path.join(JOB_OUTPUT_DIR, `${jobId}.json`);
-
-    const pyProcess = spawn(
-      "python3",
-      [SCRIPT_PATH, videoUrl, "--output-json", jobOutputJsonPath],
-      {
-        cwd: process.cwd(),
-        env: process.env,
-      }
-    );
-
-    let stderr = "";
-    let stdoutBuffer = "";
-
-    const updateJob = async (patch: Record<string, unknown>) => {
-      await supabase
-        .from("ai_jobs")
-        .update(patch)
-        .eq("id", jobId)
-        .eq("user_id", user.id);
-    };
-
-    const handleProgressEvent = async (event: ProgressEvent) => {
-      if (event.type !== "progress" || !event.status) return;
-
-      await updateJob({
-        status: event.status,
-        progress: typeof event.progress === "number" ? event.progress : undefined,
-        message: event.message ?? null,
-        processed_frames:
-          typeof event.processed_frames === "number" ? event.processed_frames : null,
-        total_frames: typeof event.total_frames === "number" ? event.total_frames : null,
-      });
-    };
-
-    pyProcess.stdout.on("data", (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split(/\r?\n/);
-      stdoutBuffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("{")) continue;
-
-        try {
-          const evt = JSON.parse(trimmed) as ProgressEvent;
-          void handleProgressEvent(evt);
-        } catch {
-          // Ignore non-JSON logs.
-        }
-      }
-    });
-
-    pyProcess.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    pyProcess.on("error", (err: Error) => {
-      void updateJob({
-        status: "failed",
-        progress: 100,
-        message: "Failed",
-        error_text: err.message,
-        finished_at: new Date().toISOString(),
-      });
-    });
-
-    pyProcess.on("close", (code: number | null) => {
-      void (async () => {
-        if (code !== 0) {
-          await updateJob({
-            status: "failed",
-            progress: 100,
-            message: "Failed",
-            error_text: stderr.trim() || `Python exited with code ${code ?? "unknown"}`,
-            finished_at: new Date().toISOString(),
-          });
-          return;
-        }
-
-        try {
-          const smash = await readSmashListFromOutput(jobOutputJsonPath);
-          const payload = buildSmashPayload(smash, matchId);
-          await fs.writeFile(cachePath, JSON.stringify(payload), "utf-8");
-
-          await updateJob({
-            status: "completed",
-            progress: 100,
-            message: "Completed",
-            result_json: payload,
-            error_text: null,
-            finished_at: new Date().toISOString(),
-          });
-        } catch (err) {
-          await updateJob({
-            status: "failed",
-            progress: 100,
-            message: "Failed",
-            error_text:
-              err instanceof Error ? err.message : "Failed to parse AI output JSON",
-            finished_at: new Date().toISOString(),
-          });
-        }
-      })();
-    });
-
-    return NextResponse.json({
-      success: true,
-      jobId,
-      status: "queued",
-      message: "Queued",
-    });
+    return NextResponse.json({ success: true, jobId, status: "queued", message: "Queued" });
   } catch (error) {
     return NextResponse.json(
       {

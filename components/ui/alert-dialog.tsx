@@ -11,7 +11,9 @@ interface AlertDialogProps {
   description: string;
   confirmText?: string;
   cancelText?: string;
+  secondaryText?: string;
   onConfirm: () => void;
+  onSecondaryAction?: () => void;
   variant?: "danger" | "warning" | "info";
 }
 
@@ -22,7 +24,9 @@ export function AlertDialog({
   description,
   confirmText = "Confirm",
   cancelText = "Cancel",
+  secondaryText,
   onConfirm,
+  onSecondaryAction,
   variant = "danger",
 }: AlertDialogProps) {
   if (!open) return null;
@@ -62,8 +66,8 @@ export function AlertDialog({
       />
 
       {/* Dialog */}
-      <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
-        <div className="bg-white rounded-lg shadow-xl p-6 space-y-4">
+      <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg px-4 animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-white rounded-lg shadow-xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
           {/* Icon & Title */}
           <div className="flex items-start gap-4">
             <div
@@ -86,17 +90,29 @@ export function AlertDialog({
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 justify-end pt-2">
+          <div className="flex flex-col gap-3 pt-2">
             <Button
               onClick={handleCancel}
               variant="outline"
-              className="border-gray-300 text-gray-700 hover:bg-gray-100"
+              className="w-full border-gray-300 text-gray-700 hover:bg-gray-100"
             >
               {cancelText}
             </Button>
+            {secondaryText && onSecondaryAction && (
+              <Button
+                onClick={() => {
+                  onSecondaryAction();
+                  onOpenChange(false);
+                }}
+                variant="outline"
+                className="w-full border-gray-300 text-gray-700 hover:bg-gray-100"
+              >
+                {secondaryText}
+              </Button>
+            )}
             <Button
               onClick={handleConfirm}
-              className={`${styles.button} text-white`}
+              className={`w-full ${styles.button} text-white`}
             >
               {confirmText}
             </Button>

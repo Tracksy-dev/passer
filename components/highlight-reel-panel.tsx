@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AlertDialog } from "@/components/ui/alert-dialog";
 import { getReelTitle } from "@/lib/match-title";
 import { Trash2, Loader2, Eye, EyeOff, Globe, Pencil } from "lucide-react";
 
@@ -39,14 +40,25 @@ function formatDate(iso: string) {
 export function HighlightReelPanel({
   matchId,
   selectedPointIds,
+  hasUnsavedOffsets = false,
+  unsavedPointCount = 0,
+  generateWithoutSavingNonce = 0,
+  onGenerateWithoutSaving,
+  onSaveOffsets,
 }: {
   matchId: string;
   selectedPointIds: Set<string>;
+  hasUnsavedOffsets?: boolean;
+  unsavedPointCount?: number;
+  generateWithoutSavingNonce?: number;
+  onGenerateWithoutSaving?: () => void;
+  onSaveOffsets?: () => Promise<boolean>;
 }) {
   const [reels, setReels] = useState<ReelJobRow[]>([]);
   const [selectedReelId, setSelectedReelId] = useState<string | null>(null);
 
   const [isStarting, setIsStarting] = useState(false);
+  const [isSavingAndStarting, setIsSavingAndStarting] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [isTogglingId, setIsTogglingId] = useState<string | null>(null);
   const [editingReelId, setEditingReelId] = useState<string | null>(null);
@@ -56,6 +68,8 @@ export function HighlightReelPanel({
     useState<ReelRenameFeedback | null>(null);
   const skipBlurSaveForReelIdRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmUnsavedOpen, setConfirmUnsavedOpen] = useState(false);
+  const lastGenerateWithoutSavingNonceRef = useRef(0);
 
   const selected = useMemo(
     () => reels.find((r) => r.id === selectedReelId) ?? null,
@@ -113,6 +127,8 @@ export function HighlightReelPanel({
   }, [reels]);
 
   const startNewReel = async () => {
+    if (isStarting || isSavingAndStarting) return;
+
     try {
       setIsStarting(true);
       setError(null);
@@ -169,6 +185,48 @@ export function HighlightReelPanel({
       setIsStarting(false);
     }
   };
+
+  const saveThenStartNewReel = async () => {
+    if (!onSaveOffsets) {
+      await startNewReel();
+      return;
+    }
+
+    try {
+      setIsSavingAndStarting(true);
+      setError(null);
+
+      const saved = await onSaveOffsets();
+      if (!saved) return;
+
+      await startNewReel();
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Failed to save changes before generating reel",
+      );
+    } finally {
+      setIsSavingAndStarting(false);
+    }
+  };
+
+  const handleGenerateClick = () => {
+    if (hasUnsavedOffsets && onSaveOffsets) {
+      setConfirmUnsavedOpen(true);
+      return;
+    }
+
+    void startNewReel();
+  };
+
+  useEffect(() => {
+    if (generateWithoutSavingNonce <= 0) return;
+    if (generateWithoutSavingNonce === lastGenerateWithoutSavingNonceRef.current) return;
+
+    lastGenerateWithoutSavingNonceRef.current = generateWithoutSavingNonce;
+    void startNewReel();
+  }, [generateWithoutSavingNonce]);
 
   const startInlineReelRename = (reel: ReelJobRow) => {
     setEditingReelId(reel.id);
@@ -340,29 +398,58 @@ export function HighlightReelPanel({
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-900">
-          Highlight Reels
-        </span>
-        <Button
-          onClick={startNewReel}
-          disabled={isStarting || selectedPointIds.size === 0}
-          className="h-8 px-3 bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-50"
-          title={
-            selectedPointIds.size === 0
-              ? "Select at least one highlight to generate a reel"
-              : undefined
-          }
-        >
-          {isStarting ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Creating…
-            </>
-          ) : (
-            "Generate new"
+      <div className="px-4 py-3 border-b border-gray-200 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="text-sm font-medium text-gray-900">
+            Highlight Reels
+          </span>
+          {hasUnsavedOffsets && (
+            <p className="mt-0.5 text-[11px] text-amber-800">
+              {unsavedPointCount} unsaved point change
+              {unsavedPointCount === 1 ? "" : "s"} need saving before generating.
+            </p>
           )}
-        </Button>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {hasUnsavedOffsets && (
+            <Button
+              variant="outline"
+              onClick={() => onGenerateWithoutSaving?.()}
+              disabled={isStarting || isSavingAndStarting || selectedPointIds.size === 0}
+              className="h-8 px-3 text-xs border-gray-300 text-gray-700 hover:bg-gray-100"
+              title="Generate reel without saving"
+            >
+              Generate reel without saving
+            </Button>
+          )}
+
+          <Button
+            onClick={handleGenerateClick}
+            disabled={isStarting || selectedPointIds.size === 0}
+            className="h-8 px-3 bg-[#0047AB] hover:bg-[#003580] text-white disabled:opacity-50"
+            title={
+              selectedPointIds.size === 0
+                ? "Select at least one highlight to generate a reel"
+                : hasUnsavedOffsets
+                  ? "You have unsaved offset changes"
+                  : undefined
+            }
+          >
+            {isStarting ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Creating…
+              </>
+            ) : isSavingAndStarting ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              hasUnsavedOffsets ? "Generate reel" : "Generate new"
+            )}
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -614,6 +701,23 @@ export function HighlightReelPanel({
           </ul>
         )}
       </div>
+
+      <AlertDialog
+        open={confirmUnsavedOpen}
+        onOpenChange={setConfirmUnsavedOpen}
+        title="Generate reel without saving?"
+        description={`Are you sure you want to generate the reel without saving your ${unsavedPointCount} unsaved point change${unsavedPointCount === 1 ? "" : "s"}? Generating now may use older saved values and produce the wrong reel. This warning also helps if you clicked generate by accident.`}
+        confirmText="Save changes and generate"
+        cancelText="Review changes"
+        secondaryText="Generate reel without saving"
+        onSecondaryAction={() => {
+          void startNewReel();
+        }}
+        onConfirm={() => {
+          void saveThenStartNewReel();
+        }}
+        variant="warning"
+      />
     </div>
   );
 }
